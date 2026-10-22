@@ -918,6 +918,8 @@ function placeSun(center){
   sun.target.position.copy(_c);sun.position.copy(_c).addScaledVector(sunDir,45);
 }
 const PR=Math.min(devicePixelRatio,2);
+// dynamic resolution: RS scales the render size (1 = full, floor .5) to hold at least 30 fps on slower devices
+let RS=1,rsT=0,rsUp=0;
 const composer=new EffectComposer(renderer,new THREE.WebGLRenderTarget(innerWidth*PR,innerHeight*PR,{type:THREE.HalfFloatType,samples:4,depthTexture:new THREE.DepthTexture(innerWidth*PR,innerHeight*PR)}));
 composer.addPass(new RenderPass(scene,camera));
 // Depth of field: circle of confusion from real scene depth, gathered over a golden-angle disc.
@@ -963,17 +965,23 @@ float lu=dot(c.rgb,vec3(.3,.5,.2));c.rgb=mix(vec3(lu),c.rgb,uSat);c.rgb+=(h(gl_F
 composer.addPass(finalPass);
 // whole-scene finish: film grain and saturation, driven by the Finish sliders
 function applyFinish(){finalPass.uniforms.uGrain.value=.03*S.grain;finalPass.uniforms.uSat.value=S.sat}
-function applyFx(){U.uGlowGain.value=.75*S.glow;U.uPointI.value=3*S.glow;U.uFlowerGlow.value=1.6*S.glow;U.uPx.value=3*PR}
+function applyFx(){U.uGlowGain.value=.75*S.glow;U.uPointI.value=3*S.glow;U.uFlowerGlow.value=1.6*S.glow;U.uPx.value=3*PR*RS}
 applyFx();
-function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);composer.setPixelRatio(PR);composer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();patchDirty=true}
+function resize(){const w=innerWidth,h=innerHeight,pr=PR*RS;renderer.setPixelRatio(pr);renderer.setSize(w,h,false);composer.setPixelRatio(pr);composer.setSize(w,h);U.uPx.value=3*pr;camera.aspect=w/h;camera.updateProjectionMatrix();patchDirty=true}
 addEventListener('resize',resize);resize();
 
 /* ---------------- main loop ---------------- */
 let last=performance.now()/1000,idle=0,dragging=false,camX=0,cullT=0;
 var fpsN=0,fpsT=0,fpsLast=0,fpsWorst=0,terrWorst=0,terrRows=0,jsWorst=0,drawWorst=0;
+// once a second: below 30 fps, shrink the render size by about what the shortfall needs (pixel cost goes with the
+// square of the scale); with clear headroom for 3 seconds running, grow it back a step. A short pause after each
+// change lets the new frame rate settle before judging again, and nothing changes while loading or in a hidden tab.
+function adaptRes(f,n){if(!modelsReady||document.hidden){rsT=n;rsUp=0;return}if(n-rsT<2500)return;
+  if(f<29&&RS>.5){RS=Math.max(.5,Math.round(Math.min(RS-.05,RS*Math.sqrt(f/30))*20)/20);rsT=n;rsUp=0;resize()}
+  else if(f>48&&RS<1){if(++rsUp>=3){RS=Math.min(1,Math.round((RS+.1)*20)/20);rsT=n;rsUp=0;resize()}}else rsUp=0}
 function fpsCount(){fpsN++;const n=performance.now();if(fpsLast)fpsWorst=Math.max(fpsWorst,n-fpsLast);fpsLast=n;
-  if(n-fpsT>1000){const f=fpsN*1000/(n-fpsT);fpsN=0;fpsT=n;const el=document.getElementById('fps');
-    if(el&&el.style.display!=='none')el.textContent=`${f.toFixed(0)} fps · worst ${fpsWorst.toFixed(0)} ms · scene update ${jsWorst.toFixed(1)} ms (terrain ${terrWorst.toFixed(1)}) · draw calls ${drawWorst.toFixed(1)} ms`;
+  if(n-fpsT>1000){const f=fpsN*1000/(n-fpsT);fpsN=0;fpsT=n;adaptRes(f,n);const el=document.getElementById('fps');
+    if(el&&el.style.display!=='none')el.textContent=`${f.toFixed(0)} fps · res ${Math.round(RS*100)}% · worst ${fpsWorst.toFixed(0)} ms · scene update ${jsWorst.toFixed(1)} ms (terrain ${terrWorst.toFixed(1)}) · draw calls ${drawWorst.toFixed(1)} ms`;
     fpsWorst=0;terrWorst=0;terrRows=0;jsWorst=0;drawWorst=0}}
 function frame(){
   requestAnimationFrame(frame);fpsCount();const tF0=performance.now();
