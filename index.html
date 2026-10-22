@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cut">
 <title>Meadow Drift</title>
 <style>
 /* Full-screen scene with a floating glass control bar; one deliberate dark look over the meadow. */
@@ -1033,6 +1035,13 @@ $('fs').onclick=()=>{const d=document,el=d.documentElement;
 addEventListener('keydown',e=>{if(e.code==='Space'&&!/INPUT|SELECT|BUTTON/.test(e.target.tagName)){e.preventDefault();playing?pause():play()}});
 const wake=()=>{idle=0;$('bar').classList.remove('hide');$('hud').classList.remove('hide')};
 addEventListener('pointermove',wake);addEventListener('pointerdown',wake);addEventListener('keydown',wake);
+// touch screens: a plain touch listener as a backup wake (some mobile browsers are unreliable with pointer events
+// over a canvas), and a tap on the scene itself closes the settings panel. Mouse input is untouched, so desktop
+// behaves exactly as before.
+addEventListener('touchstart',wake,{passive:true});
+{const closePanel=()=>{if(!$('panel').hidden)$('panel').hidden=true};
+ $('c').addEventListener('touchstart',closePanel,{passive:true});
+ $('c').addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.pointerType==='pen')closePanel()})}
 let dragN=0;
 addEventListener('dragenter',e=>{e.preventDefault();dragN++;$('drop').classList.add('on')});
 addEventListener('dragleave',()=>{if(--dragN<=0){dragN=0;$('drop').classList.remove('on')}});
