@@ -182,7 +182,7 @@ function genRow(r,w=1,nb=null){
   // level the trail across its width (a bench cut into the slope), easing back to the hillside over a shoulder
   // the trail may tilt gently across its width to follow the hillside, sits between the two banks, and its shoulder
   // widens wherever the hill climbs or falls away steeply, so there are no cliffs beside it
-  {const xc=pathX(z),hw=pathHW(z),at=x=>{const fk=clamp((x-HM.x0)/HM.cell,0,HM.NX-1.001),k0=Math.floor(fk);return lerp(rowH[k0],rowH[k0+1],fk-k0)};
+  {const xc=pathV(z),hw=pathHW(z),at=x=>{const fk=clamp((x-HM.x0)/HM.cell,0,HM.NX-1.001),k0=Math.floor(fk);return lerp(rowH[k0],rowH[k0+1],fk-k0)};
    const hL=at(xc-hw-2),hR=at(xc+hw+2),hs=Math.max(.3,S.hills),sm=.1/hs;
    const s=clamp((hR-hL)/(2*hw+4),-sm,sm),hc=lerp(at(xc),(hL+hR)*.5,.5);
    const dv=Math.max(Math.abs(hL-(hc-s*(hw+2))),Math.abs(hR-(hc+s*(hw+2))))*hs,W=clamp(2.5*dv+.6,1.6,6);
@@ -208,14 +208,17 @@ function regenAll(){genLow=rowLo();for(let r=genLow;r<genLow+HM.NZ;r++)genRow(r,
 function regenAhead(fromDist,blend=7){if(genLow===null)return regenAll();
   for(let r=genLow;r<genLow+HM.NZ;r++){const d=-r*HM.cell;if(d<fromDist)continue;genRow(r,sstep(0,1,(d-fromDist)/blend),r-1)}hFull();replaceProps()}
 function updateRows(){if(genLow===null)return regenAll();const lo=rowLo();while(genLow>lo){genLow--;genRow(genLow,1,genLow+1)}}
-const pathX=z=>1.4*Math.sin(z*.045+.3)+.6*Math.sin(z*.11+1.7)+.25*Math.sin(z*.23+.4);
-const pathHW=z=>1.5+.22*Math.sin(z*.07+1)+.13*Math.sin(z*.19+2);
+const pathX=z=>1.4*Math.sin(z*.045+.3)+.6*Math.sin(z*.11+1.7)+.25*Math.sin(z*.23+.4)+.17*Math.sin(z*.083+2.2)+.08*Math.sin(z*.29+.9);
+// the trail's width wanders at a few unrelated scales and its line has some small extra kinks, so it never looks machine-cut
+// half-width tops out at 1.55 m (the width of the live version) and narrows to 1.0 m (a 2 m wide trail)
+const pathHW=z=>1.275+1.1*(.22*Math.sin(z*.07+1)+.13*Math.sin(z*.19+2)+.1*Math.sin(z*.33+.5)+.05*Math.sin(z*.71+1.3));
+const pathV=pathX;
 // CPU mirror of the shader's hAt (same hash, value noise and trail dip) so props sit on what is drawn
 const fr1=x=>x-Math.floor(x);
 function h12(px,py){let a=fr1(px*.1031),b=fr1(py*.1031),c=a;const d=a*(b+33.33)+b*(c+33.33)+c*(a+33.33);a+=d;b+=d;c+=d;return fr1((a+b)*c)}
 function vn2(x,y){const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy);
   const a=h12(ix,iy),b=h12(ix+1,iy),c=h12(ix,iy+1),d=h12(ix+1,iy+1);const p=a+(b-a)*ux;return p+((c+(d-c)*ux)-p)*uy}
-const pcore=(x,z)=>{const t=clamp((Math.abs(x-pathX(z))-(pathHW(z)-.3))/.5,0,1);return 1-t*t*(3-2*t)};
+const pcore=(x,z)=>{const t=clamp((Math.abs(x-pathV(z))-(pathHW(z)-.3))/.5,0,1);return 1-t*t*(3-2*t)};
 function hAt(x,z){let fx=clamp((x-HM.x0)/HM.cell,0,HM.NX-1.001);const fz=z/HM.cell,k=Math.floor(fx),r=Math.floor(fz),tx=fx-k,tz=fz-r;
   const NZ=HM.NZ,a=(((r%NZ)+NZ)%NZ)*HM.NX+k,b=((((r+1)%NZ)+NZ)%NZ)*HM.NX+k;  // no per-call closure, so no garbage
   return ((hF[a]*(1-tx)+hF[a+1]*tx)*(1-tz)+(hF[b]*(1-tx)+hF[b+1]*tx)*tz)*S.hills+(vn2(x*1.1,z*1.1)-.5)*.06-.05*pcore(x,z)}
@@ -228,9 +231,9 @@ varying vec3 vWPos;
 float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
 float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.-2.*f);return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x),mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x),u.y);}
 float fbm2(vec2 p){float s=0.,a=.5;for(int i=0;i<4;i++){s+=a*vnoise(p);p=p*2.03+vec2(17.1,9.2);a*=.5;}return s/.9375;}
-float pathX(float z){return 1.4*sin(z*.045+.3)+.6*sin(z*.11+1.7)+.25*sin(z*.23+.4);}
-float pathHW(float z){return 1.5+.22*sin(z*.07+1.)+.13*sin(z*.19+2.);}
-float pathMask(vec2 xz){float d=abs(xz.x-pathX(xz.y));float e=pathHW(xz.y)+(vnoise(xz*1.3)-.5)*.32+(vnoise(xz*4.3)-.5)*.1;return 1.-smoothstep(e-.13,e+.13,d);}
+float pathX(float z){return 1.4*sin(z*.045+.3)+.6*sin(z*.11+1.7)+.25*sin(z*.23+.4)+.17*sin(z*.083+2.2)+.08*sin(z*.29+.9);}
+float pathHW(float z){return 1.275+1.1*(.22*sin(z*.07+1.)+.13*sin(z*.19+2.)+.1*sin(z*.33+.5)+.05*sin(z*.71+1.3));}
+float pathMask(vec2 xz){float d=abs(xz.x-pathX(xz.y));float e=pathHW(xz.y)+(vnoise(xz*1.3)-.5)*.4+(vnoise(xz*4.3)-.5)*.18+(vnoise(xz*11.)-.5)*.08;return 1.-smoothstep(e-.1,e+.1,d);}
 float pathCore(vec2 xz){float d=abs(xz.x-pathX(xz.y));float e=pathHW(xz.y);return 1.-smoothstep(e-.3,e+.2,d);}
 float hAt(vec2 xz){vec2 uv=vec2(((xz.x-uHM.x)/uHM.y+.5)/uHM.z,(xz.y/uHM.y+.5)/uHM.w);return texture(uHMap,uv).r*uHills+(vnoise(xz*1.1)-.5)*.06-.05*pathCore(xz);}
 vec3 glowAt(vec2 xz){vec2 uv=(xz-uGlowRect.xy)/uGlowRect.zw;if(uv.x<0.||uv.y<0.||uv.x>1.||uv.y>1.)return vec3(0.);return texture(uGlowMap,uv).rgb*uGlowGain;}
@@ -626,8 +629,8 @@ function cullAll(){const zMax=-camDist+U.uPatch.value.z+3;
 function renderOcc(){renderer.setRenderTarget(occRT);renderer.setClearColor(0x000000,0);renderer.clear();renderer.render(occScene,camera);renderer.setRenderTarget(null)}
 // obstacles keep flowers from growing out of stones and headstones
 const OBST=[];
-function onPath(x,z,m){return Math.abs(x-pathX(z))<pathHW(z)+m}
-const graveX=(g,z)=>pathX(z)+g.side*(pathHW(z)+1.75+g.off);
+function onPath(x,z,m){return Math.abs(x-pathV(z))<pathHW(z)+m}
+const graveX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.75+g.off);
 function graveRes(x,z,r){for(const g of graves){const gz=itemZ(g);if(Math.abs(gz-z)>4)continue;const gx=graveX(g,gz);if((x-gx)**2+(z-gz)**2<(2.5+r)**2)return true}return false}
 function blocked(x,z,r=0){for(let i=OBST.length-1;i>=0;i--){const o=OBST[i];if(o.z>-camDist+HM.back+2){OBST.splice(i,1);continue}if((x-o.x)**2+(z-o.z)**2<(o.r+r)**2)return true}
   return onPath(x,z,.2+r)||graveRes(x,z,r)||archRes(x,z,r)}
@@ -678,7 +681,7 @@ function spawnItem(it){
   if(it.k==='grave'){const gs=d.scale[0],gx=graveX(it,z);M.spawn(gx,z,it.yaw,gs,[(r[0]-.5)*.06,(r[1]-.5)*.06]);OBST.push({x:gx,z,r:.8*gs});return}
   const n=d.cluster?d.cluster[0]+Math.floor(r[0]*(d.cluster[1]-d.cluster[0]+1)):1;
   const sc0=lerp(d.scale[0],d.scale[1],r[2]),R0=d.edge?d.rad*sc0:Math.max(M.size[0],M.size[2])*.5*sc0;
-  const edgeX=(side,f)=>pathX(z)+side*(pathHW(z)+d.edge[0]+f*(d.edge[1]-d.edge[0])+R0);
+  const edgeX=(side,f)=>pathV(z)+side*(pathHW(z)+d.edge[0]+f*(d.edge[1]-d.edge[0])+R0);
   let cx=d.edge?edgeX(it.side,r[3]):it.x;
   for(let k=0;k<8&&blocked(cx,z,R0);k++)cx=d.edge?edgeX(k&1?-it.side:it.side,Math.random()):(Math.random()*2-1)*8.5;
   if(blocked(cx,z,R0))return;
@@ -762,6 +765,8 @@ async function loadModels(onProg,onWarm=()=>{}){
   jobs.push(tex('edge_col.webp',true).then(t=>{U.uPathCol.value=t}),tex('edge_nor.webp',false).then(t=>{U.uPathNor.value=t}),
     tex('center_col.webp',true).then(t=>{U.uCenCol.value=t}),tex('center_nor.webp',false).then(t=>{U.uCenNor.value=t}),
     tex('mud_col.webp',true).then(t=>{U.uMudCol.value=t}),tex('mud_nor.webp',false).then(t=>{U.uMudNor.value=t}));
+  // the walking figure counts as one more job, so the loading bar covers it and its shaders get warmed up below
+  jobs.push(runnerReady.then(()=>onProg(++done,total)));
   const total=jobs.length;await Promise.all(jobs);U.uPathOn.value=1;
   // warm up: compile every shader (including shadow passes) before the first real frame
   camera.updateMatrixWorld();const all=[...Object.values(K).flatMap(k=>k.meshes),...Object.values(PROPS).flat().flatMap(p=>p.meshes)];
@@ -1153,34 +1158,10 @@ function updateFlies(t){CRIT.flies.forEach((F,s)=>{const u=(t-F.t0)/F.D;if(F.z==
     f.g.visible=true;const z=F.z+Math.sin(t*.6+f.ph)*2.5,x=pathX(z)+(2*v-1)*(pathHW(z)+4)+Math.sin(t*1.7+f.ph)*.8;
     f.g.position.set(x,hAt(x,z)+1+.7*Math.sin(t*.9+f.ph*2),z);
     const b=Math.pow(Math.max(0,Math.sin(t*2.6+f.ph*4)),8);f.core.material.opacity=b*.7;f.halo.material.opacity=.05+.4*b}})}
-/* runner: a procedural mannequin jogging along the trail with the camera. One footstep lands on every beat, and the
-   stride length is matched to the flight speed so the planted foot doesn't skate. Faces -z (the direction of travel). */
-const RUNNER=(()=>{const mat=new THREE.MeshStandardMaterial({color:0x6b7078,roughness:.55});
-  const mesh=(g,p)=>{const m=new THREE.Mesh(g,mat);m.castShadow=true;m.receiveShadow=true;p.add(m);return m};
-  // a limb hangs from its pivot along -y; its end group sits at the next joint
-  const limb=(par,x,y,z,L,r)=>{const p=new THREE.Group();p.position.set(x,y,z);par.add(p);const g=new THREE.CapsuleGeometry(r,L,4,10);g.translate(0,-L/2,0);mesh(g,p);const e=new THREE.Group();e.position.y=-L;p.add(e);return [p,e]};
-  const root=new THREE.Group(),pel=new THREE.Group();root.add(pel);
-  const tor=new THREE.Group();pel.add(tor);
-  {const g=new THREE.CapsuleGeometry(.13,.34,4,10);g.translate(0,.3,0);mesh(g,tor).scale.set(1,1,.72)}
-  mesh(new THREE.SphereGeometry(.105,16,12),tor).position.set(0,.8,-.01);
-  {const g=new THREE.CapsuleGeometry(.04,.06,3,8);mesh(g,tor).position.set(0,.66,0)}
-  const legs=[],arms=[];
-  for(const s of [-1,1]){
-    const [th,thE]=limb(pel,s*.1,0,0,.43,.065),[sh,shE]=limb(thE,0,0,0,.43,.05);
-    const ft=new THREE.Group();shE.add(ft);mesh(new THREE.BoxGeometry(.09,.06,.22),ft).position.set(0,-.05,-.05);
-    legs.push({th,sh,ft});
-    const [ua,uaE]=limb(tor,s*.19,.52,0,.27,.045),[fa,faE]=limb(uaE,0,0,0,.25,.038);
-    mesh(new THREE.SphereGeometry(.045,10,8),faE);ua.rotation.z=s*.12;arms.push({ua,fa})}
-  scene.add(root);let k=0;
-  return {root,pel,update(dt){const on=S.runner!==false;root.visible=on;if(!on)return;
-    const go=playing&&song?1:0;k+=(go-k)*Math.min(1,dt*3);
-    const bpm=song?song.an.bpm:120,ph=Math.PI*songTime()*bpm/60;
-    const A=Math.asin(Math.min(.8,1.1*S.speed/(2*.9)))*k;
-    legs.forEach((l,i)=>{const f=ph+i*Math.PI,sw=Math.max(0,Math.cos(f));
-      l.th.rotation.x=.12*k+A*Math.sin(f);l.sh.rotation.x=-(.08+1.25*sw)*k;l.ft.rotation.x=.25*sw*k});
-    arms.forEach((a,i)=>{const f=ph+i*Math.PI;a.ua.rotation.x=-A*.9*Math.sin(f);a.fa.rotation.x=.25+1.05*k});
-    pel.position.y=.99-.05*k+.05*k*Math.abs(Math.sin(ph));
-    tor.rotation.x=-.17*k;tor.rotation.y=.12*k*Math.sin(ph);
+/* the walker: an empty holder that keeps the figure (loaded below, before the loading screen lifts) on the trail
+   with the camera. Faces -z (the direction of travel). */
+const RUNNER=(()=>{const root=new THREE.Group();scene.add(root);
+  return {root,update(dt){const on=S.runner!==false;root.visible=on;if(!on)return;
     const z=-camDist-lookAhead()*.62,x=pathX(z)+.3*Math.sin(camDist*.1),dx=pathX(z-.5)-pathX(z+.5);
     root.position.set(x,hAt(x,z),z);root.rotation.y=-Math.atan(dx)}}})();
 // Clothing exported without skin weights would stay frozen in the rest pose while the body walks. Give each loose
@@ -1203,9 +1184,9 @@ function skinClothes(root){let body=null;root.traverse(o=>{if(o.isSkinnedMesh&&(
     const sk=new THREE.SkinnedMesh(g,m.material);sk.name=m.name;sk.position.copy(body.position);sk.quaternion.copy(body.quaternion);sk.scale.copy(body.scale);
     body.parent.add(sk);sk.bind(body.skeleton,body.bindMatrix);m.parent.remove(m)}
   return loose.length}
-// swap in the Mixamo runner when it has loaded (in the background; the mannequin stays if anything fails).
+// the walking figure loads alongside the other models; the loading screen waits for it (see loadModels).
 // The clip holds four motion-captured steps; it is time-stretched so the footsteps land on the beats.
-(async()=>{try{
+const runnerReady=(async()=>{try{
   const {FBXLoader}=await import('three/addons/loaders/FBXLoader.js');
   const j=await fetch('models/runner.json').then(r=>{if(!r.ok)throw new Error('runner '+r.status);return r.json()});
   // large models are split across several files
@@ -1233,7 +1214,7 @@ function skinClothes(root){let body=null;root.traverse(o=>{if(o.isSkinnedMesh&&(
   const wv=new THREE.Vector3(),fy=Math.min(...toes.map(b=>b.getWorldPosition(wv).y)),hy=top?top.getWorldPosition(wv).y:fy+(head.getWorldPosition(wv).y-fy)*1.12;
   const box={min:{y:fy}},s=3.5/(hy-fy);if(!(s>1e-4&&s<100))throw new Error('bad scale '+s);
   const hold=new THREE.Group();hold.add(obj);obj.scale.setScalar(s);obj.position.y=-box.min.y*s;hold.rotation.y=Math.PI;
-  RUNNER.root.add(hold);RUNNER.pel.visible=false;
+  RUNNER.root.add(hold);
   // walk -> stop -> idle. The stop and idle clips come from animation-only files of the same rig.
   const walk=mixer.existingAction(clip);walk.timeScale=0;
   const rootTrack=c=>c.tracks.find(tr=>/(Hips|Joint|Pelvis|Root)\.position$/i.test(tr.name)),wz=(rootTrack(clip)||{values:[0,0,0]}).values[2];
@@ -1254,7 +1235,7 @@ function skinClothes(root){let body=null;root.traverse(o=>{if(o.isSkinnedMesh&&(
   // before the first play she stands idle exactly at the start spot
   if(idle){walk.stop();idle.play();f.state='idle';f.off=-f.travelM}
   RUNNER.fbx=f;
-}catch(e){console.warn('Runner model unavailable, keeping the mannequin:',e);const p=document.createElement('div');p.textContent='Runner model failed: '+(e&&e.message||e);p.style.cssText='position:fixed;left:16px;top:70px;font-size:12px;color:#f88;z-index:9;pointer-events:none';document.body.appendChild(p)}})();
+}catch(e){console.warn('Walking figure unavailable:',e)}})();
 let lastCrit=performance.now();
 function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.1,(now-lastCrit)/1000);lastCrit=now;
   CRIT.roach.forEach(c=>roachRun(c,t));CRIT.centi.forEach(c=>crossing(c,t));updateFlies(t);RUNNER.update(dt);
