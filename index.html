@@ -1236,6 +1236,37 @@ const runnerReady=(async()=>{try{
   if(idle){walk.stop();idle.play();f.state='idle';f.off=-f.travelM}
   RUNNER.fbx=f;
 }catch(e){console.warn('Walking figure unavailable:',e)}})();
+// procedural life layered on the walk clip (walking only; the stop and idle play exactly as captured):
+// glances at the flowers beside the trail, a slight torso lean into climbs (hips and legs
+// untouched, head kept level), and slow drift in the head, shoulders and arms so no two steps are identical
+const LQ=new THREE.Quaternion(),LQ2=new THREE.Quaternion(),LA=new THREE.Vector3(),LUP=new THREE.Vector3(0,1,0),LR=new THREE.Vector3(),LF=new THREE.Vector3(),LV=new THREE.Vector3();
+function boneRot(b,axis,a){if(!b||!a)return;b.parent.getWorldQuaternion(LQ).invert();LA.copy(axis).applyQuaternion(LQ);b.quaternion.premultiply(LQ2.setFromAxisAngle(LA,a))}
+const lnz=(t,s)=>.6*Math.sin(t*.37+s)+.3*Math.sin(t*.91+s*2.3)+.1*Math.sin(t*1.73+s*.7);
+function walkerLife(f,dt){
+  if(!f.B){const B={},want={sp:/Spine$/,sp1:/Spine1$/,sp2:/Spine2$/,neck:/Neck$/,head:/Head$/,la:/LeftArm$/,ra:/RightArm$/,lf:/LeftForeArm$/,rf:/RightForeArm$/};
+    f.obj.traverse(o=>{if(!o.isBone)return;for(const k in want)if(!B[k]&&want[k].test(o.name))B[k]=o});f.B=B;
+    f.G={yaw:0,pitch:0,ty:0,tp:0,amt:1,tgt:null,wait:5+Math.random()*6,hold:0,arch:{}};f.gw=0;f.sl=0}
+  const B=f.B,G=f.G,root=RUNNER.root,k=1-Math.exp(-dt*3.2);
+  f.gw+=((f.state==='walk'?1:0)-f.gw)*(1-Math.exp(-dt*3));if(f.gw<.002)return;
+  root.updateMatrixWorld();LR.set(1,0,0).applyQuaternion(root.quaternion);LF.set(0,0,-1).applyQuaternion(root.quaternion);
+  const z=root.position.z;
+  // now and then she looks at a spot of flowers beside the trail
+  if(!G.tgt&&(G.wait-=dt)<=0){let pick=null;
+    {const s=Math.random()<.5?-1:1;LV.set(s*(2+Math.random()*3),0,-(2.5+Math.random()*4));root.localToWorld(LV);pick=new THREE.Vector3(LV.x,hAt(LV.x,LV.z)+.3,LV.z);G.hold=.8+2.6*Math.random()**1.4}
+    G.amt=.35+.65*Math.random();G.tgt=pick}
+  if(G.tgt){LV.copy(G.tgt);root.worldToLocal(LV);const yaw=Math.atan2(-LV.x,-LV.z),pitch=Math.atan2(LV.y-3.2,Math.hypot(LV.x,LV.z));
+    G.ty=G.amt*clamp(yaw,-.95,.95);G.tp=G.amt*clamp(pitch,-.5,.25);if((G.hold-=dt)<=0||Math.abs(yaw)>1.25){G.tgt=null;G.wait=9+Math.random()*13}}
+  else{G.ty=0;G.tp=0}
+  G.yaw+=(G.ty-G.yaw)*k;G.pitch+=(G.tp-G.pitch)*k;
+  // the climb: torso leans a little into uphill, less back on the way down
+  const zA=z-1.5,zB=z+1.5,sl=(hAt(pathX(zA),zA)-hAt(pathX(zB),zB))/3;f.sl+=(sl-f.sl)*(1-Math.exp(-dt*1.5));
+  const lean=f.sl>0?-Math.min(.16,f.sl*.5):Math.min(.06,-f.sl*.25),t=performance.now()/1000,w=f.gw;
+  boneRot(B.sp,LR,w*lean*.35);boneRot(B.sp1,LR,w*lean*.35);boneRot(B.sp2,LR,w*lean*.3);
+  boneRot(B.sp2,LUP,w*(G.yaw*.15+.03*lnz(t,1)));boneRot(B.sp2,LF,w*.025*lnz(t,2));
+  boneRot(B.neck,LUP,w*G.yaw*.35);boneRot(B.neck,LR,w*(G.pitch*.4-lean*.3));
+  boneRot(B.head,LUP,w*G.yaw*.5);boneRot(B.head,LR,w*(G.pitch*.6-lean*.3+.03*lnz(t,4)));
+  boneRot(B.la,LR,w*.05*lnz(t,5));boneRot(B.ra,LR,w*.05*lnz(t,6));
+  boneRot(B.lf,LR,w*.06*lnz(t,7));boneRot(B.rf,LR,w*.06*lnz(t,8))}
 let lastCrit=performance.now();
 function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.1,(now-lastCrit)/1000);lastCrit=now;
   CRIT.roach.forEach(c=>roachRun(c,t));CRIT.centi.forEach(c=>crossing(c,t));updateFlies(t);RUNNER.update(dt);
@@ -1247,7 +1278,7 @@ function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.
     // song ends or pauses: walk to a stop, then settle into the idle (see the 'finished' handler)
     else if(!go&&f.state==='walk'&&f.stop){f.fade(f.stop,.3);f.state='stop'}
     if(f.state==='walk'){const bpm=song?song.an.bpm:120,spb=bpm<65?2:bpm>145?.5:1,b=t*bpm/60*spb/2;f.walk.time=(b-Math.floor(b))*f.clip.duration}
-    f.mixer.update(dt);
+    f.mixer.update(dt);walkerLife(f,dt);
     // how far along the trail the animation alone puts her hips; her offset makes up the rest, so when she starts walking
     // her hips stay exactly where she stood through the crossfade, then ease into the walking spot
     f.r=f.hips?f.hold.worldToLocal(f.hips.getWorldPosition(f.hv)).z-f.obj.position.z:0;
