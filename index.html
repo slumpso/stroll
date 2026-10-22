@@ -131,7 +131,7 @@ const hemi=new THREE.HemisphereLight(0xcfe3ff,0x3b4a1c,.9);scene.add(hemi);
 const sun=new THREE.DirectionalLight(0xfff0d8,3);
 // phones and tablets (a finger is the main pointer) get a lighter shadow map; desktops keep the full one
 const MOBILE=matchMedia('(pointer: coarse)').matches;
-sun.castShadow=true;sun.shadow.mapSize.set(MOBILE?2048:4096,MOBILE?2048:4096);sun.shadow.radius=4;sun.shadow.bias=-.0003;sun.shadow.normalBias=.015;
+sun.castShadow=true;sun.shadow.mapSize.set(MOBILE?1024:4096,MOBILE?1024:4096);sun.shadow.radius=4;sun.shadow.bias=-.0003;sun.shadow.normalBias=.015;
 sun.shadow.camera.near=1;sun.shadow.camera.far=120;scene.add(sun,sun.target);
 const sunDir=new THREE.Vector3();
 // "sun" is the moon now: a dim cold key light plus a faint blue sky fill
