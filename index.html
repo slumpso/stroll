@@ -28,7 +28,7 @@ button:hover,label.btn:hover{background:var(--chip-hi)}
 #bar label.tog{opacity:.4}
 #bar label.tog:has(input:checked){opacity:.95}
 button:disabled{opacity:.45;cursor:wait}
-button:focus-visible,label.btn:focus-within,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,label.btn:has(input:focus-visible),input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 label.btn input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 #play{min-width:46px;font-size:15px}
 .seek{display:flex;align-items:center;gap:8px;flex:1 1 200px;min-width:0;font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
@@ -110,7 +110,7 @@ const mixc=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
 
 /* ---------------- settings ---------------- */
 // the shipped look: hills, moonlight, grain, saturation, depth of field and the colour grade are fixed (no sliders)
-const DEF={speed:1,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2,density:2.45,fsize:1,wind:1.4,moon:4.7,glow:2.4,fhue:217,grain:.1,sat:.8,grass:'dense'};
+const DEF={speed:1,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2.3,density:2.45,fsize:1,wind:1.4,moon:4.7,glow:2.4,fhue:217,grain:.1,sat:.8,grass:'dense'};
 const S={...DEF};
 // the track the site starts with: put the MP3 next to index.html with this file name. If it's missing (as inside the
 // Claude artifact), the built-in demo track plays instead. 'title' is what the status line shows.
