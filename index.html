@@ -1246,13 +1246,13 @@ function walkerLife(f,dt){
   if(!f.B){const B={},want={sp:/Spine$/,sp1:/Spine1$/,sp2:/Spine2$/,neck:/Neck$/,head:/Head$/,la:/LeftArm$/,ra:/RightArm$/,lf:/LeftForeArm$/,rf:/RightForeArm$/};
     f.obj.traverse(o=>{if(!o.isBone)return;for(const k in want)if(!B[k]&&want[k].test(o.name))B[k]=o});f.B=B;
     f.G={yaw:0,pitch:0,ty:0,tp:0,amt:1,tgt:null,wait:5+Math.random()*6,hold:0,arch:{}};f.gw=0;f.sl=0}
-  const B=f.B,G=f.G,root=RUNNER.root,k=1-Math.exp(-dt*3.2);
+  const B=f.B,G=f.G,root=RUNNER.root,k=1-Math.exp(-dt*2.5);
   f.gw+=((f.state==='walk'?1:0)-f.gw)*(1-Math.exp(-dt*3));if(f.gw<.002)return;
   root.updateMatrixWorld();LR.set(1,0,0).applyQuaternion(root.quaternion);LF.set(0,0,-1).applyQuaternion(root.quaternion);
   const z=root.position.z;
   // now and then she looks at a spot of flowers beside the trail
   if(!G.tgt&&(G.wait-=dt)<=0){let pick=null;
-    {const s=Math.random()<.5?-1:1;LV.set(s*(2+Math.random()*3),0,-(2.5+Math.random()*4));root.localToWorld(LV);pick=new THREE.Vector3(LV.x,hAt(LV.x,LV.z)+.3,LV.z);G.hold=.8+2.6*Math.random()**1.4}
+    {const s=Math.random()<.5?-1:1;LV.set(s*(2+Math.random()*3),0,-(2.5+Math.random()*4));root.localToWorld(LV);pick=new THREE.Vector3(LV.x,hAt(LV.x,LV.z)+.3,LV.z);G.hold=1.4+2.4*Math.random()**1.2}
     G.amt=.35+.65*Math.random();G.tgt=pick}
   if(G.tgt){LV.copy(G.tgt);root.worldToLocal(LV);const yaw=Math.atan2(-LV.x,-LV.z),pitch=Math.atan2(LV.y-3.2,Math.hypot(LV.x,LV.z));
     G.ty=G.amt*clamp(yaw,-.95,.95);G.tp=G.amt*clamp(pitch,-.5,.25);if((G.hold-=dt)<=0||Math.abs(yaw)>1.25){G.tgt=null;G.wait=9+Math.random()*13}}
@@ -1260,13 +1260,24 @@ function walkerLife(f,dt){
   G.yaw+=(G.ty-G.yaw)*k;G.pitch+=(G.tp-G.pitch)*k;
   // the climb: torso leans a little into uphill, less back on the way down
   const zA=z-1.5,zB=z+1.5,sl=(hAt(pathX(zA),zA)-hAt(pathX(zB),zB))/3;f.sl+=(sl-f.sl)*(1-Math.exp(-dt*1.5));
-  const lean=f.sl>0?-Math.min(.16,f.sl*.5):Math.min(.06,-f.sl*.25),t=performance.now()/1000,w=f.gw;
+  const lean=f.sl>0?-Math.min(.25,f.sl*.8):Math.min(.1,-f.sl*.4),t=performance.now()/1000,w=f.gw;
   boneRot(B.sp,LR,w*lean*.35);boneRot(B.sp1,LR,w*lean*.35);boneRot(B.sp2,LR,w*lean*.3);
   boneRot(B.sp2,LUP,w*(G.yaw*.15+.03*lnz(t,1)));boneRot(B.sp2,LF,w*.025*lnz(t,2));
   boneRot(B.neck,LUP,w*G.yaw*.35);boneRot(B.neck,LR,w*(G.pitch*.4-lean*.3));
   boneRot(B.head,LUP,w*G.yaw*.5);boneRot(B.head,LR,w*(G.pitch*.6-lean*.3+.03*lnz(t,4)));
   boneRot(B.la,LR,w*.05*lnz(t,5));boneRot(B.ra,LR,w*.05*lnz(t,6));
   boneRot(B.lf,LR,w*.06*lnz(t,7));boneRot(B.rf,LR,w*.06*lnz(t,8))}
+// keep the planted foot on the ground: the figure stands at the ground height under its middle, but on a slope each
+// foot is over higher or lower ground. Lift or lower the whole figure by the terrain difference under whichever foot is
+// planted (the lower one), blended softly between the feet and smoothed so she doesn't bob. It only ever lifts her:
+// where the ground under the foot is lower she stays at her usual height
+const LV2=new THREE.Vector3(),LV3=new THREE.Vector3();
+function footPlant(f,dt){
+  if(!f.FB){const F={};f.obj.traverse(o=>{if(!o.isBone)return;const n=o.name;if(/LeftFoot$/.test(n))F.lf=o;if(/RightFoot$/.test(n))F.rf=o;if(/LeftToeBase$/.test(n))F.lt=o;if(/RightToeBase$/.test(n))F.rt=o});f.FB=F;f.fy=0}
+  const F=f.FB,r=RUNNER.root;if(!F.lf||!F.rf||!r.visible)return;const base=r.position.y+f.hold.position.y;
+  const foot=(a,t)=>{a.getWorldPosition(LV2);let x=LV2.x,y=LV2.y,z=LV2.z;if(t){t.getWorldPosition(LV3);y=Math.min(y,LV3.y);x=(x+LV3.x)/2;z=(z+LV3.z)/2}return [y-base,hAt(x,z)-r.position.y]};
+  const [hl,dl]=foot(F.lf,F.lt),[hr,dr]=foot(F.rf,F.rt),wl=1/(1+Math.exp((hl-hr)/.06)),dy=Math.max(0,wl*dl+(1-wl)*dr);
+  f.fy+=(dy-f.fy)*(1-Math.exp(-dt*8));f.hold.position.y=f.fy}
 let lastCrit=performance.now();
 function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.1,(now-lastCrit)/1000);lastCrit=now;
   CRIT.roach.forEach(c=>roachRun(c,t));CRIT.centi.forEach(c=>crossing(c,t));updateFlies(t);RUNNER.update(dt);
@@ -1283,7 +1294,7 @@ function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.
     // her hips stay exactly where she stood through the crossfade, then ease into the walking spot
     f.r=f.hips?f.hold.worldToLocal(f.hips.getWorldPosition(f.hv)).z-f.obj.position.z:0;
     if(f.state==='walk'){f.tw+=dt;f.off=(f.d0-f.r)*Math.exp(-f.tw*.25)}
-    f.obj.position.z=f.off}}
+    f.obj.position.z=f.off;footPlant(f,dt)}}
 frame();
 $('play').disabled=true;
 let loadMsg='Loading models…',demoMsg='';
