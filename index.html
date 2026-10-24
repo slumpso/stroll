@@ -120,7 +120,7 @@ const mixc=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
 
 /* ---------------- settings ---------------- */
 // the shipped look: hills, moonlight, grain, saturation, depth of field and the colour grade are fixed (no sliders)
-const DEF={speed:1,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2.3,density:2.45,fsize:1,wind:1.4,moon:4.7,glow:2.4,fhue:217,grain:.1,sat:.8,grass:'dense'};
+const DEF={speed:1,beatWalk:true,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2.3,density:2.45,fsize:1,wind:1.4,moon:4.7,glow:2.4,fhue:217,grain:.1,sat:.8,grass:'dense'};
 const S={...DEF};
 // the track the site starts with: put the MP3 next to index.html with this file name. If it's missing (as inside the
 // Claude artifact), the built-in demo track plays instead. 'title' is what the status line shows.
@@ -174,7 +174,13 @@ function vn(x,y){const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,ux=fx*f
 function fbm(x,y,o){let s=0,a=.5,n=0;for(let i=0;i<o;i++){s+=a*vn(x,y);n+=a;x=x*2.03+17.1;y=y*2.03+9.2;a*=.5}return s/n}
 
 let song=null,playing=false,offset=0,camDist=0,camGY=0,genLow=null;
-const speedMS=()=>(song?song.an.bpm:120)/60*1.1*S.speed;
+// her pace in steps a minute. Beat-matched: one step per beat, with the tempo doubled or halved until it sits between
+// 50 and 140, so her heels always land on beats. Otherwise a smooth pace that rises with the tempo but stays between a
+// stroll and a brisk walk (about 62 at very slow songs, 97 at 90 BPM, 109 at 130, never past 120)
+const walkSPM=()=>{const b=song?song.an.bpm:120;if(S.beatWalk!==false){let w=b;while(w<50)w*=2;while(w>140)w/=2;return w}
+  return 120-40*Math.exp(-(Math.max(b,40)-60)/55)};
+// she travels at the speed her steps carry her, so the feet never slide
+const speedMS=()=>walkSPM()/60*1.1*S.speed;
 const lookAhead=()=>S.alt*Math.tan(S.tilt*deg);
 function envAt(arr,fr,t){const f=t*fr;if(f<0||f>=arr.length-1)return 0;const i=Math.floor(f),u=f-i;return arr[i]*(1-u)+arr[i+1]*u}
 function ampAt(t){if(!song)return 0;return sstep(.28,.92,envAt(song.an.env,song.an.fr,t))}
@@ -935,7 +941,7 @@ async function analyze(buf,prog){
   const loud=db.map(d=>clamp((d-lo)/Math.max(1,hi-lo),0,1));
   const bands=E.map(e=>{const lo=pct(e,.1),hi=pct(e,.98);return e.map(v=>clamp((v-lo)/Math.max(1e-3,hi-lo),0,1))}),bass=bands[0];
   prog(1);
-  return {bpm,events:[...hits,...beats].sort((p,q)=>p.t-q.t),hitCount:hits.length,env:loud,bass,bands,fr,dur:buf.duration};
+  return {bpm,beatT:Float64Array.from(btT),events:[...hits,...beats].sort((p,q)=>p.t-q.t),hitCount:hits.length,env:loud,bass,bands,fr,dur:buf.duration};
 }
 
 /* ---------------- demo track (synthesised offline) ----------------
@@ -1159,7 +1165,7 @@ addEventListener('drop',e=>{e.preventDefault();dragN=0;$('drop').classList.remov
 
 // settings panel
 // the camera is fixed at 6 m and 58° (the grass and shadow culling are fitted to that view), so it has no sliders
-const SL=[['speed','Walk speed',.3,2.5,.05,'×'],['density','Flower density',0,2.5,.05,'×'],['fsize','Flower size',.5,2,.05,'×'],
+const SL=[['density','Flower density',0,2.5,.05,'×'],['fsize','Flower size',.5,2,.05,'×'],
   ['wind','Wind',0,2.5,.05,'×'],['glow','Flower glow',0,3,.05,'×'],['fhue','Flower hue',0,360,1,'°']];
 const panel=$('panel'),setters=[];
 for(const [k,l,mn,mx,st,u] of SL){const r=document.createElement('label');r.className='sl';
@@ -1171,6 +1177,7 @@ for(const [k,l,mn,mx,st,u] of SL){const r=document.createElement('label');r.clas
   setters.push(show);show();panel.appendChild(r)}
 const row=document.createElement('div');row.className='row';
 row.innerHTML=`<label>Grass <select id="s_grass"><option value="light">Light</option><option value="lush">Lush</option><option value="dense">Dense</option></select></label>
+<label title="On: her steps land on the beat. Off: a smooth pace from stroll to brisk walk"><input type="checkbox" id="s_beatwalk">Beat-matched walk</label>
 <label><input type="checkbox" id="s_fps">FPS</label><button id="s_reset">Reset</button>`;
 panel.appendChild(row);
 $('s_grass').value=S.grass;$('s_grass').onchange=e=>{S.grass=e.target.value;buildGrass(GRASS_N[S.grass])};
@@ -1179,10 +1186,11 @@ $('person').onchange=e=>{S.runner=e.target.checked};
 const fpsEl=document.createElement('div');fpsEl.id='fps';
 fpsEl.style.cssText='position:fixed;top:12px;left:12px;padding:4px 9px;border-radius:8px;background:rgba(0,0,0,.45);color:#eef2e4;font:12px ui-monospace,monospace;z-index:5;display:none;pointer-events:none';
 document.body.appendChild(fpsEl);
+$('s_beatwalk').checked=S.beatWalk!==false;$('s_beatwalk').onchange=e=>{S.beatWalk=e.target.checked};
 $('s_fps').onchange=e=>{fpsEl.style.display=e.target.checked?'block':'none'};
 // bring the live state in line with the defaults above (the wind, hill and grade uniforms are set here at load)
 U.uWind.value=S.wind;U.uHills.value=S.hills;applySun();applyFx();applyFinish();recolorFlowers();patchDirty=true;
-$('s_reset').onclick=()=>{const g=S.grass;Object.assign(S,DEF);U.uHills.value=S.hills;replaceProps();U.uWind.value=S.wind;  $('s_grass').value=S.grass;if(g!==S.grass)buildGrass(GRASS_N[S.grass]);applySun();applyFx();recolorFlowers();applyFinish();patchDirty=true;setters.forEach(f=>f())};
+$('s_reset').onclick=()=>{const g=S.grass;Object.assign(S,DEF);$('s_beatwalk').checked=S.beatWalk;U.uHills.value=S.hills;replaceProps();U.uWind.value=S.wind;  $('s_grass').value=S.grass;if(g!==S.grass)buildGrass(GRASS_N[S.grass]);applySun();applyFx();recolorFlowers();applyFinish();patchDirty=true;setters.forEach(f=>f())};
 
 /* colour grading (fixed for release): shadows = lift, midtones = gamma, highlights = gain; [hue x, hue y, brightness] */
 // fixed grade, read from the wheels as they were last set
@@ -1488,7 +1496,14 @@ function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.
     if(go&&f.state!=='walk'){f.d0=f.off+f.r;f.tw=0;f.fade(f.walk,.35);f.walk.timeScale=0;f.state='walk'}
     // song ends or pauses: walk to a stop, then settle into the idle (see the 'finished' handler)
     else if(!go&&f.state==='walk'&&f.stop){f.fade(f.stop,.3);f.state='stop'}
-    if(f.state==='walk'){const bpm=song?song.an.bpm:120,spb=bpm<65?2:bpm>145?.5:1,b=t*bpm/60*spb/2;f.walk.time=(b-Math.floor(b))*f.clip.duration}
+    // the clip holds two steps. Beat-matched, its phase follows the tracked beats themselves (so the steps stay on them
+    // even where the song pushes or drags); otherwise it simply runs at her pace
+    if(f.state==='walk'){const bpm=song?song.an.bpm:120,W=walkSPM(),BT=song&&song.an.beatT;let b;
+      if(S.beatWalk!==false&&BT&&BT.length>1){const n=BT.length;let pos;
+        if(t<=BT[0])pos=(t-BT[0])*bpm/60;else if(t>=BT[n-1])pos=n-1+(t-BT[n-1])*bpm/60;
+        else{let lo=0,hi=n-1;while(hi-lo>1){const m=(lo+hi)>>1;BT[m]<=t?lo=m:hi=m}pos=lo+(t-BT[lo])/(BT[hi]-BT[lo])}
+        b=pos*(W/bpm)/2}else b=t*W/60/2;
+      f.walk.time=(b-Math.floor(b))*f.clip.duration}
     if(f.base)for(const [b,q] of f.base)b.quaternion.copy(q);
     f.mixer.update(dt);walkerLife(f,dt);
     // how far along the trail the animation alone puts her hips; her offset makes up the rest, so when she starts walking
