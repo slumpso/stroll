@@ -124,7 +124,7 @@ const DEF={speed:1,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2.3,densit
 const S={...DEF};
 // the track the site starts with: put the MP3 next to index.html with this file name. If it's missing (as inside the
 // Claude artifact), the built-in demo track plays instead. 'title' is what the status line shows.
-const START_SONG={file:'song.mp3',title:'Dawn Labyrinth (Geller Remix)'};
+const START_SONG={file:'song.mp3',title:'Winter Flower (Clams Casino)'};
 // blade budgets (allocated) and densities per square metre: the drawn count follows the visible patch area,
 // so tilting the camera up no longer spreads the same blades thinner
 const GRASS_N={light:200000,lush:380000,dense:700000},GRASS_D={light:170,lush:320,dense:590};
@@ -857,41 +857,79 @@ const pct=(a,p)=>{const s=Float32Array.from(a).sort();return s[Math.min(s.length
 function localMean(a,W){const n=a.length,ps=new Float64Array(n+1);for(let i=0;i<n;i++)ps[i+1]=ps[i]+a[i];const o=new Float32Array(n);
   for(let i=0;i<n;i++){const lo=Math.max(0,i-W),hi=Math.min(n,i+W+1);o[i]=(ps[hi]-ps[lo])/(hi-lo)}return o}
 const tick=()=>new Promise(r=>setTimeout(r,0));
+// hits are timed to the steepest part of each attack; measured against synthetic drums with known hit times, that
+// lands 12 ms early, so hits are shifted by that much
+const ANA_LAT=.012;
 async function analyze(buf,prog){
   const ch=buf.numberOfChannels,sr0=buf.sampleRate,dec=Math.max(1,Math.round(sr0/22050)),sr=sr0/dec,L=Math.floor(buf.length/dec);
   const x=new Float32Array(L),chans=[...Array(ch)].map((_,i)=>buf.getChannelData(i));
   for(let i=0;i<L;i++){let s=0;for(let c=0;c<ch;c++){const d=chans[c];for(let k=0;k<dec;k++)s+=d[i*dec+k]}x[i]=s/(ch*dec)}
-  const N=1024,hop=512,fr=sr/hop,F=Math.max(8,Math.floor((L-N)/hop)+1);
+  // Onsets are found on a finer step (hop 256, ~12 ms) than the slow curves for hills, gusts and glow (every other frame,
+  // the same ~23 ms frames as before, so those look exactly as they did)
+  const N=1024,hop=256,fo=sr/hop,F=Math.max(8,Math.floor((L-N)/hop)+1),fr=sr/(hop*2),F2=Math.ceil(F/2);
   const win=new Float32Array(N).map((_,i)=>.5-.5*Math.cos(2*Math.PI*i/(N-1)));
   const bandHz=[[30,150],[150,600],[600,3000],[3000,11000]],bin=f=>clamp(Math.round(f*N/sr),1,N/2-1);
-  const E=[0,1,2,3].map(()=>new Float32Array(F)),rms=new Float32Array(F),re=new Float32Array(N),im=new Float32Array(N);
+  // a log-frequency spectrogram (12 bins per octave from 30 Hz to 11 kHz) for the onset work
+  // (low down, where FFT bins are wider than a semitone, empty bins are dropped so every bin holds real energy)
+  const lb=new Int16Array(N/2);let M=0,prev=-1;for(let k=0;k<N/2;k++){const f=k*sr/N;if(f<30||f>11000){lb[k]=-1;continue}const q=Math.floor(12*Math.log2(f/30));if(q!==prev){prev=q;M++}lb[k]=M-1}
+  const fcs=new Float32Array(M),fcn=new Float32Array(M);for(let k=0;k<N/2;k++)if(lb[k]>=0){fcs[lb[k]]+=k*sr/N;fcn[lb[k]]++}
+  const fc=fcs.map((v,m)=>v/fcn[m]),bandOf=Int8Array.from(fc,f=>bandHz.findIndex(([a,b])=>f>=a&&f<b));
+  const S=new Float32Array(F*M),E=[0,1,2,3].map(()=>new Float32Array(F2)),rms=new Float32Array(F2),re=new Float32Array(N),im=new Float32Array(N);
   for(let f=0;f<F;f++){const o=f*hop;let ss=0;
     for(let i=0;i<N;i++){const v=x[o+i]||0;ss+=v*v;re[i]=v*win[i];im[i]=0}
-    rms[f]=Math.sqrt(ss/N);fft(re,im);
-    for(let b=0;b<4;b++){let s=0;for(let k=bin(bandHz[b][0]);k<=bin(bandHz[b][1]);k++)s+=re[k]*re[k]+im[k]*im[k];E[b][f]=Math.log1p(s*100)}
-    if((f&511)===0){prog(f/F*.85);await tick()}}
-  // per-band onsets
-  const OD=[],hits=[],minGap=[.12,.1,.09,.06],W=Math.round(fr*.5);
-  for(let b=0;b<4;b++){const e=E[b],od=new Float32Array(F);
-    for(let f=1;f<F;f++)od[f]=Math.max(0,e[f]-e[f-1]);
-    const p=pct(od,.98)||1;for(let f=0;f<F;f++)od[f]=Math.min(1.5,od[f]/p);OD.push(od);
+    fft(re,im);const row=f*M;
+    for(let k=1;k<N/2;k++)if(lb[k]>=0)S[row+lb[k]]+=re[k]*re[k]+im[k]*im[k];
+    if(!(f&1)){const g=f>>1;rms[g]=Math.sqrt(ss/N);
+      for(let b=0;b<4;b++){let s=0;for(let k=bin(bandHz[b][0]);k<=bin(bandHz[b][1]);k++)s+=re[k]*re[k]+im[k]*im[k];E[b][g]=Math.log1p(s*100)}}
+    for(let m=0;m<M;m++)S[row+m]=Math.sqrt(S[row+m]);
+    if((f&1023)===0){prog(f/F*.45);await tick()}}
+  // drums apart from everything else (harmonic-percussive separation): sustained sounds are smooth along time, hits are
+  // smooth across frequency, so a median along each tells them apart. The percussive part is what hits are found in
+  const H=new Float32Array(F*M),P=new Float32Array(F*M),wb=new Float32Array(32);
+  const med=n=>{for(let i=1;i<n;i++){const v=wb[i];let j=i-1;while(j>=0&&wb[j]>v){wb[j+1]=wb[j];j--}wb[j+1]=v}return wb[n>>1]};
+  const rH=8,rP=6;
+  for(let m=0;m<M;m++){for(let f=0;f<F;f++){let n=0;for(let q=Math.max(0,f-rH);q<=Math.min(F-1,f+rH);q++)wb[n++]=S[q*M+m];H[f*M+m]=med(n)}
+    if((m&7)===0){prog(.45+m/M*.2);await tick()}}
+  for(let f=0;f<F;f++){const row=f*M;for(let m=0;m<M;m++){let n=0;for(let q=Math.max(0,m-rP);q<=Math.min(M-1,m+rP);q++)wb[n++]=S[row+q];P[row+m]=med(n)}
+    if((f&2047)===0){prog(.65+f/F*.15);await tick()}}
+  for(let i=0;i<F*M;i++){const h=H[i]*H[i],p=P[i]*P[i];P[i]=Math.log1p(10*S[i]*p/(h+p+1e-12))}
+  // onsets: per log-frequency bin, the rise over the frame two steps back (taking the louder of its neighbours there, so
+  // vibrato and slides don't count), summed per band
+  const OD=[0,1,2,3].map(()=>new Float32Array(F)),ODt=new Float32Array(F);
+  for(let f=2;f<F;f++){const r=f*M,r0=(f-2)*M;for(let m=0;m<M;m++){const b=bandOf[m];if(b<0)continue;
+    const ref=Math.max(P[r0+m],m>0?P[r0+m-1]:0,m<M-1?P[r0+m+1]:0),d=P[r+m]-ref;if(d>0){OD[b][f]+=d;ODt[f]+=d}}}
+  prog(.82);await tick();
+  // a hit is timed to where its rise is steepest: between this frame and the one two steps back, at the window centre
+  const tOf=f=>((f-1)*hop+N/2)/sr+ANA_LAT;
+  const hits=[],minGap=[.12,.1,.09,.06],W=Math.round(fo*.5);
+  for(let b=0;b<4;b++){const od=OD[b];const p=pct(od,.98)||1;for(let f=0;f<F;f++)od[f]=Math.min(1.5,od[f]/p);
     const mean=localMean(od,W);let last=-1;
-    for(let f=2;f<F-2;f++){const v=od[f];if(v<od[f-1]||v<od[f+1]||v<od[f-2]||v<od[f+2])continue;
-      const thr=mean[f]*1.5+.2;if(v<thr)continue;const t=f/fr;if(t-last<minGap[b])continue;last=t;
+    for(let f=3;f<F-3;f++){const v=od[f];if(v<od[f-1]||v<od[f+1]||v<od[f-2]||v<od[f+2]||v<od[f-3]||v<od[f+3])continue;
+      const thr=mean[f]*1.5+.3;if(v<thr)continue;const t=tOf(f);if(t-last<minGap[b])continue;last=t;
       hits.push({t,type:'hit',b,s:clamp((v-thr)/Math.max(.2,1.2-thr)+.15,.1,1)})}}
-  prog(.9);await tick();
   // tempo by autocorrelation of the combined onset curve
-  const env=new Float32Array(F);for(let f=0;f<F;f++)env[f]=OD[0][f]+OD[1][f]*.6+OD[2][f]*.9+OD[3][f]*.5;
-  const em=localMean(env,W),e2=env.map((v,i)=>Math.max(0,v-em[i]));
-  const lagMin=Math.floor(fr*60/180),lagMax=Math.ceil(fr*60/70),ac=new Float32Array(lagMax+3);
+  {const p=pct(ODt,.98)||1;for(let f=0;f<F;f++)ODt[f]=Math.min(1.5,ODt[f]/p)}
+  const em=localMean(ODt,W),e2=ODt.map((v,i)=>Math.max(0,v-em[i]));
+  const lagMin=Math.floor(fo*60/180),lagMax=Math.ceil(fo*60/70),ac=new Float32Array(lagMax+3);
   for(let lag=lagMin-1;lag<=lagMax+1;lag++){let s=0;for(let f=0;f+lag<F;f++)s+=e2[f]*e2[f+lag];ac[lag]=s/Math.max(1,F-lag)}
-  let best=-1,bl=lagMin;for(let lag=lagMin;lag<=lagMax;lag++){const bpm=60*fr/lag,w=Math.exp(-.5*Math.pow(Math.log2(bpm/120)/.9,2)),v=ac[lag]*w;if(v>best){best=v;bl=lag}}
-  const a=ac[bl-1],b0=ac[bl],c=ac[bl+1],den=a-2*b0+c,lagF=bl+(den?clamp(.5*(a-c)/den,-.5,.5):0);
-  const bpm=60*fr/lagF;
-  let bp=0,bs=-1;for(let p=0;p<lagF;p+=.25){let s=0;for(let k=p;k<F;k+=lagF)s+=e2[Math.round(k)]||0;if(s>bs){bs=s;bp=p}}
-  const bt=[];for(let k=bp;k<F;k+=lagF)bt.push(k/fr);
-  let bd=0,bds=-1;for(let d=0;d<4;d++){let s=0;for(let i=d;i<bt.length;i+=4)s+=OD[0][Math.round(bt[i]*fr)]||0;if(s>bds){bds=s;bd=d}}
-  const beats=bt.map((t,i)=>({t,type:'beat',down:((i-bd)%4+4)%4===0}));
+  let best=-1,bl=lagMin;for(let lag=lagMin;lag<=lagMax;lag++){const bpm=60*fo/lag,w=Math.exp(-.5*Math.pow(Math.log2(bpm/120)/.9,2)),v=ac[lag]*w;if(v>best){best=v;bl=lag}}
+  const a=ac[bl-1],b0=ac[bl],c=ac[bl+1],den=a-2*b0+c,per=bl+(den?clamp(.5*(a-c)/den,-.5,.5):0);
+  prog(.88);await tick();
+  // beat tracking (dynamic programming): each beat lands on a strong onset near one period after the previous beat, so the
+  // beats follow the song as it pushes and drags instead of a fixed grid drifting off over a long track
+  const sc=new Float32Array(F),bk=new Int32Array(F).fill(-1),tight=100;
+  for(let f=0;f<F;f++){let bs=0,bi=-1;const lo=Math.max(0,Math.floor(f-2*per)),hi=Math.floor(f-per/2);
+    for(let q=lo;q<=hi;q++){const r=Math.log((f-q)/per),v=sc[q]-tight*r*r;if(v>bs){bs=v;bi=q}}
+    sc[f]=e2[f]+bs;bk[f]=bi}
+  let end=F-1,ev=-1;for(let f=Math.max(0,Math.floor(F-per));f<F;f++)if(sc[f]>ev){ev=sc[f];end=f}
+  const bf=[];for(let f=end;f>=0;f=bk[f])bf.push(f);bf.reverse();
+  // fill any long gap (silence, breakdowns) with steady beats at the tempo, and extend to the start and end
+  const bt=[];for(let i=0;i<bf.length;i++){if(i){const g=bf[i]-bf[i-1],n=Math.round(g/per);for(let k=1;k<n;k++)bt.push(bf[i-1]+g*k/n)}bt.push(bf[i])}
+  while(bt.length&&bt[0]-per>=0)bt.unshift(bt[0]-per);while(bt.length&&bt[bt.length-1]+per<F)bt.push(bt[bt.length-1]+per);
+  const btT=bt.map(f=>tOf(f+1)-ANA_LAT);
+  const bpm=60*fo/(bt.length>1?(bt[bt.length-1]-bt[0])/(bt.length-1):per);
+  let bd=0,bds=-1;for(let d=0;d<4;d++){let s=0;for(let i=d;i<bt.length;i+=4)s+=OD[0][Math.round(bt[i])]||0;if(s>bds){bds=s;bd=d}}
+  const beats=btT.map((t,i)=>({t,type:'beat',down:((i-bd)%4+4)%4===0}));
   // loudness envelope (drives the hills) and bass envelope (drives gusts)
   const db=localMean(rms.map(v=>v*v),Math.round(fr*1.4)).map(v=>10*Math.log10(v+1e-10)),lo=pct(db,.05),hi=pct(db,.98);
   const loud=db.map(d=>clamp((d-lo)/Math.max(1,hi-lo),0,1));
