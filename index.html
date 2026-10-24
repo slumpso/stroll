@@ -649,7 +649,7 @@ function onPath(x,z,m){return Math.abs(x-pathV(z))<pathHW(z)+m}
 const graveX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.75+g.off);
 // the raised tomb lies lengthwise beside the trail on its own rectangular terrace
 const TOMB={hx:1.46,hz:2.31,m:.55,fall:2.8};TOMB.R=TOMB.hz+TOMB.m+TOMB.fall;
-const tombX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.5+TOMB.hx+g.off*.5);
+const tombX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.85+TOMB.hx+g.off*.5);
 function graveRes(x,z,r){for(const g of graves){const gz=itemZ(g);if(Math.abs(gz-z)>6)continue;
   if(g.k==='tomb'){if(Math.abs(x-tombX(g,gz))<TOMB.hx+1+r&&Math.abs(z-gz)<TOMB.hz+1+r)return true;continue}
   const gx=graveX(g,gz);if((x-gx)**2+(z-gz)**2<(2.5+r)**2)return true}return false}
@@ -1225,6 +1225,8 @@ function skinClothes(root){let body=null;root.traverse(o=>{if(o.isSkinnedMesh&&(
   const cell=(x,y,z)=>[Math.floor((x-box.min.x)/C),Math.floor((y-box.min.y)/C),Math.floor((z-box.min.z)/C)],hk=(a,b,c)=>(a*73856093)^(b*19349663)^(c*83492791);
   const grid=new Map();for(let i=0;i<bp.count;i++){const [a,b,c]=cell(bp.getX(i),bp.getY(i),bp.getZ(i)),k=hk(a,b,c);let L=grid.get(k);if(!L)grid.set(k,L=[]);L.push(i)}
   const inv=body.matrixWorld.clone().invert(),gi=['getX','getY','getZ','getW'];
+  let hipY=null;root.traverse(o=>{if(hipY===null&&o.isBone&&/Hips$|Pelvis$/i.test(o.name))hipY=o.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).y});
+  const done=[];
   for(const m of loose){const g=m.geometry.clone();g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv,m.matrixWorld));
     const p=g.attributes.position,n=p.count,SI=new Uint16Array(n*4),SW=new Float32Array(n*4);
     for(let i=0;i<n;i++){const x=p.getX(i),y=p.getY(i),z=p.getZ(i),[cx,cy,cz]=cell(x,y,z);let near=[];
@@ -1232,10 +1234,31 @@ function skinClothes(root){let body=null;root.traverse(o=>{if(o.isSkinnedMesh&&(
         for(const j of L){const dx=bp.getX(j)-x,dy=bp.getY(j)-y,dz=bp.getZ(j)-z,d=dx*dx+dy*dy+dz*dz;if(near.length<4){near.push([d,j]);near.sort((u,v)=>u[0]-v[0])}else if(d<near[3][0]){near[3]=[d,j];near.sort((u,v)=>u[0]-v[0])}}}}
       const acc=new Map();for(const [d,j] of near){const w=1/(Math.sqrt(d)+C*.05);for(let q=0;q<4;q++){const bw_=bw[gi[q]](j);if(bw_>0){const bn=bi[gi[q]](j);acc.set(bn,(acc.get(bn)||0)+w*bw_)}}}
       const top=[...acc].sort((u,v)=>v[1]-u[1]).slice(0,4),tot=top.reduce((s,t)=>s+t[1],0)||1;top.forEach((t,q)=>{SI[i*4+q]=t[0];SW[i*4+q]=t[1]/tot})}
+    done.push({m,g,SI,SW})}
+  // the dress is many separate sewn panels; smooth their weights together so the seams between panels move as one
+  smoothClothW(done.filter(d=>!/hair|eye|lash|brow|shoe|teeth|tongue/i.test(d.m.name)),C,hipY);
+  for(const {m,g,SI,SW} of done){
     g.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(SI,4));g.setAttribute('skinWeight',new THREE.Float32BufferAttribute(SW,4));
     const sk=new THREE.SkinnedMesh(g,m.material);sk.name=m.name;sk.position.copy(body.position);sk.quaternion.copy(body.quaternion);sk.scale.copy(body.scale);
     body.parent.add(sk);sk.bind(body.skeleton,body.bindMatrix);m.parent.remove(m)}
   return loose.length}
+// the transferred weights jump wherever the nearest body point changes (left leg to right leg down the middle of the
+// skirt), and the two sides of a seam can pick different bones, so the cloth tears open as she moves. Each point's
+// weights are blended with the cloth around it, across all panels (widely over the skirt below the hips, only a
+// little above, where the bodice must follow the body closely), so it stretches smoothly instead of splitting
+function smoothClothW(list,C,hipY){const P=[],W=[],ref=[];
+  for(const d of list){const p=d.g.attributes.position;for(let i=0;i<p.count;i++){const M=new Map();
+    for(let k=0;k<4;k++){const w=d.SW[i*4+k];if(w>0)M.set(d.SI[i*4+k],(M.get(d.SI[i*4+k])||0)+w)}
+    P.push(p.getX(i),p.getY(i),p.getZ(i));W.push(M);ref.push(d,i)}}
+  const G=W.length,Rhi=C*.8,Rlo=C*3,cs=Rlo,grid=new Map(),hk=(a,b,c)=>a+','+b+','+c;
+  for(let j=0;j<G;j++){const k=hk(Math.floor(P[j*3]/cs),Math.floor(P[j*3+1]/cs),Math.floor(P[j*3+2]/cs));let L=grid.get(k);if(!L)grid.set(k,L=[]);L.push(j)}
+  for(let j=0;j<G;j++){const x=P[j*3],y=P[j*3+1],z=P[j*3+2],lo=hipY===null?0:sstep(hipY,hipY-C*4,y),R=Rhi+(Rlo-Rhi)*lo,R2=R*R,acc=new Map();
+    const cx=Math.floor(x/cs),cy=Math.floor(y/cs),cz=Math.floor(z/cs);
+    for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){const L=grid.get(hk(cx+a,cy+b,cz+c));if(!L)continue;
+      for(const o of L){const dx=P[o*3]-x,dy=P[o*3+1]-y,dz=P[o*3+2]-z,d2=dx*dx+dy*dy+dz*dz;if(d2>R2)continue;const k=Math.exp(-3*d2/R2);
+        for(const [bn,v] of W[o])acc.set(bn,(acc.get(bn)||0)+k*v)}}
+    const d=ref[j*2],i=ref[j*2+1],top=[...acc].sort((u,v)=>v[1]-u[1]).slice(0,4),tot=top.reduce((s,t)=>s+t[1],0)||1;
+    for(let k=0;k<4;k++){d.SI[i*4+k]=top[k]?top[k][0]:0;d.SW[i*4+k]=top[k]?top[k][1]/tot:0}}}
 // the walking figure loads alongside the other models; the loading screen waits for it (see loadModels).
 // The clip holds four motion-captured steps; it is time-stretched so the footsteps land on the beats.
 const runnerReady=(async()=>{try{
@@ -1252,6 +1275,13 @@ const runnerReady=(async()=>{try{
   const clip=obj.animations.find(a=>/mixamo/i.test(a.name))||obj.animations.reduce((a,b)=>b.tracks.length>a.tracks.length?b:a);
   // keep the bounce and sway but remove any forward drift, so the trail code alone moves the runner
   for(const tr of clip.tracks)if(/(Hips|Joint|Pelvis|Root)\.position$/i.test(tr.name)){const v=tr.values;for(let i=0;i<v.length;i+=3)v[i+2]=v[2]}
+  // calmer hips: the captured walk swings the hips side to side and rolls them more than reads well under the flared
+  // skirt, so the sideways sway and the hip rotation are both pulled 30% toward their average
+  {const HS=.7;for(const tr of clip.tracks){const v=tr.values;
+    if(/(Hips|Pelvis)\.position$/i.test(tr.name)){let m=0;for(let i=0;i<v.length;i+=3)m+=v[i];m/=v.length/3;for(let i=0;i<v.length;i+=3)v[i]=m+(v[i]-m)*HS}
+    if(/(Hips|Pelvis)\.quaternion$/i.test(tr.name)){const n=v.length/4,q=new THREE.Quaternion(),a=new THREE.Quaternion(0,0,0,0),m=new THREE.Quaternion();
+      for(let i=0;i<n;i++){q.fromArray(v,i*4);if(i&&q.dot(m)<0)q.set(-q.x,-q.y,-q.z,-q.w);a.set(a.x+q.x,a.y+q.y,a.z+q.z,a.w+q.w);if(!i)m.copy(q)}a.normalize();
+      for(let i=0;i<n;i++){q.fromArray(v,i*4);q.slerp(a,1-HS);q.toArray(v,i*4)}}}}
   obj.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false}});
   // characters that came without embedded textures get theirs applied here (colour, normal, specular, opacity cut-out)
   if(j.tex){const tl=new THREE.TextureLoader(),ld=(f,srgb)=>f?tl.loadAsync('textures/'+f).then(t=>{if(srgb)t.colorSpace=THREE.SRGBColorSpace;t.anisotropy=8;return t}):null;
@@ -1318,7 +1348,7 @@ function walkerLife(f,dt){
   G.yaw=lim(G.yaw,G.yaw+(G.ty-G.yaw)*k,2.6*dt);G.pitch=lim(G.pitch,G.pitch+(G.tp-G.pitch)*k,2*dt);
   // the climb: torso leans a little into uphill, less back on the way down
   const zA=z-1.5,zB=z+1.5,sl=(hAt(pathX(zA),zA)-hAt(pathX(zB),zB))/3;f.sl+=(sl-f.sl)*(1-Math.exp(-dt*1.5));
-  const lean0=f.sl>0?-Math.min(.25,f.sl*.8):Math.min(.1,-f.sl*.4),lean=(f.ln=lim(f.ln||0,lean0,.5*dt)),t=performance.now()/1000,w=f.gw;
+  const lean0=f.sl>0?-Math.min(.32,f.sl*1.05):Math.min(.1,-f.sl*.4),lean=(f.ln=lim(f.ln||0,lean0,.5*dt)),t=performance.now()/1000,w=f.gw;
   boneRot(B.sp,LR,w*lean*.35);boneRot(B.sp1,LR,w*lean*.35);boneRot(B.sp2,LR,w*lean*.3);
   boneRot(B.sp2,LUP,w*(G.yaw*.15+.03*lnz(t,1)));boneRot(B.sp2,LF,w*.025*lnz(t,2));
   boneRot(B.neck,LUP,w*G.yaw*.35);boneRot(B.neck,LR,w*(G.pitch*.4-lean*.3));
@@ -1334,17 +1364,59 @@ function footPlant(f,dt){
   if(!f.FB){const F={};f.obj.traverse(o=>{if(!o.isBone)return;const n=o.name;
     // this rig names them Left_ankle / Left_toe / Left_toe_Tip / Left_Heel; Mixamo rigs use LeftFoot / LeftToeBase / LeftToe_End
     for(const [s,L] of [['l','Left'],['r','Right']]){if(new RegExp(L+'_?(ankle|Foot)$','i').test(n))F[s+'f']=o;if(new RegExp(L+'_?(toe|ToeBase)$','i').test(n))F[s+'t']=o;
-      if(new RegExp(L+'_?(toe_Tip|Toe_End)$','i').test(n))F[s+'e']=o;if(new RegExp(L+'_?Heel$','i').test(n))F[s+'h']=o}});f.FB=F;f.fy=0}
+      if(new RegExp(L+'_?(toe_Tip|Toe_End)$','i').test(n))F[s+'e']=o;if(new RegExp(L+'_?Heel$','i').test(n))F[s+'h']=o;
+    }});f.FB=F;f.fy=0;f.ikl=0;f.ikr=0;
+    // this rig has duplicate bones with the same names (some are loose helpers that move nothing), so the leg is found
+    // by walking up from the ankle: the knee is the first parent clearly away from it, the hip the thigh bone above it
+    // (skipping the twist bone halfway up the thigh)
+    const up=(b,m)=>{const v=b.getWorldPosition(new THREE.Vector3());let p=b.parent;while(p&&p.isBone&&p.getWorldPosition(new THREE.Vector3()).distanceTo(v)<m)p=p.parent;return p&&p.isBone?p:null};
+    for(const s of ['l','r'])if(F[s+'f']){const k=up(F[s+'f'],.1);let h=k&&up(k,.1);{let q=h;while(q&&q.isBone&&!/(thigh|UpLeg)$/i.test(q.name))q=q.parent;if(q&&q.isBone)h=q}if(!k||!h)continue;let a=F[s+'f'];while(a.parent&&a.parent!==k)a=a.parent;F[s+'sh']=k;F[s+'th']=h;F[s+'fa']=a}
+    // the legs are bent by the IK below, so their clean pose is put back before each mixer update like the spine's
+    if(f.base)for(const b of new Set([F.lth,F.lsh,F.lfa,F.rth,F.rsh,F.rfa]))if(b)f.base.push([b,b.quaternion.clone()])}
   const F=f.FB,r=RUNNER.root;if(!F.lf||!F.rf||!r.visible)return;const base=r.position.y+f.hold.position.y;
   const foot=(a,t,e,h)=>{a.getWorldPosition(LV2);let x=LV2.x,y=LV2.y,z=LV2.z;if(t){t.getWorldPosition(LV3);y=Math.min(y,LV3.y);x=(x+LV3.x)/2;z=(z+LV3.z)/2}
-    for(const q of [e,h])if(q){q.getWorldPosition(LV3);y=Math.min(y,LV3.y)}const g=hAt(x,z);return [y-base,g-r.position.y,g-y]};
-  const [hl,dl,pl]=foot(F.lf,F.lt,F.le,F.lh),[hr,dr,pr]=foot(F.rf,F.rt,F.re,F.rh);
+    for(const q of [e,h])if(q){q.getWorldPosition(LV3);y=Math.min(y,LV3.y)}const g=hAt(x,z);return [y-base,g-r.position.y,g-y,x,z]};
+  const [hl,dl,pl,xl,zl]=foot(F.lf,F.lt,F.le,F.lh),[hr,dr,pr,xr,zr]=foot(F.rf,F.rt,F.re,F.rh);
   // stopped or standing: both feet are down, so raise or lower her until the foot on the higher ground rests on it (no
   // sinking on an uphill, no hovering on a downhill). Walking: on descents the leading foot lands on lower ground, so she
   // sits a little lower in proportion to the (smoothed) slope; climbs and flat ground are left as they were.
   // Leaving a pause she eases from her standing height into the walking one over a second or so instead of snapping.
-  const walk=f.state==='walk',dy=walk?Math.min(0,(f.sl||0)*.35):f.fy+Math.max(pl,pr);
-  f.fy=lim(f.fy,f.fy+(dy-f.fy)*(1-Math.exp(-dt*(walk?2.2:8))),(walk?.6:1.5)*dt);f.hold.position.y=f.fy}
+  const walk=f.state==='walk';
+  if(!(F.lth&&F.lsh&&F.rth&&F.rsh)){const dy=walk?Math.min(0,(f.sl||0)*.35):f.fy+Math.max(pl,pr);
+    f.fy=lim(f.fy,f.fy+(dy-f.fy)*(1-Math.exp(-dt*(walk?2.2:8))),(walk?.6:1.5)*dt);f.hold.position.y=f.fy;return}
+  // leg IK: the hips sit as low as the foot over the lower ground needs (smoothed, so no bobbing), then each leg bends
+  // at hip and knee so its foot lands on the ground under it, keeping the clip's own lift through the swing
+  // a little lower than the lower foot needs (more on slopes), so the knees keep some give instead of locking straight
+  const dy=Math.min(dl,dr)-(walk?.015+Math.min(.04,Math.abs(f.sl||0)*.12):.01);f.fy=lim(f.fy,f.fy+(dy-f.fy)*(1-Math.exp(-dt*(walk?4:8))),(walk?1:1.5)*dt);f.hold.position.y=f.fy;
+  const kk=1-Math.exp(-dt*14);f.ikl+=(dl-f.fy-f.ikl)*kk;f.ikr+=(dr-f.fy-f.ikr)*kk;
+  LR.set(1,0,0).applyQuaternion(r.quaternion);
+  // foot tilt: a foot on the ground turns to lie along the slope under it (heel and toe both down); a lifted foot
+  // keeps the clip's angle, blending over the first few centimetres of lift so it doesn't flick
+  // Standing still, the idle clip points her toes down further than heels allow, so her feet are turned a little
+  // flatter (heel down), fading out as she walks
+  if(!f.tn)f.tn=[new THREE.Vector3(0,1,0),new THREE.Vector3(0,1,0)],f.tq=[new THREE.Quaternion(),new THREE.Quaternion()];
+  const kt=1-Math.exp(-dt*10);[[xl,zl,hl],[xr,zr,hr]].forEach(([x,z,h],i)=>{const e=.2,gx=(hAt(x+e,z)-hAt(x-e,z))/(2*e),gz=(hAt(x,z+e)-hAt(x,z-e))/(2*e),w=1-sstep(.04,.25,h);
+    LV3.set(-gx*w,1,-gz*w).normalize();if(LV3.y<.94){LV3.y=0;LV3.setLength(Math.sqrt(1-.94*.94));LV3.y=.94}f.tn[i].lerp(LV3,kt).normalize();f.tq[i].setFromUnitVectors(LUP,f.tn[i]).multiply(LQ.setFromAxisAngle(LR,.3*(1-(f.gw||0))))});
+  legIK(F.lth,F.lsh,F.lfa,f.ikl,f.tq[0]);legIK(F.rth,F.rsh,F.rfa,f.ikr,f.tq[1])}
+// two-bone IK: bend the knee until hip-to-ankle is the right length, swing the thigh to point the ankle at the target,
+// and keep the foot turned exactly as the clip had it
+const IH=new THREE.Vector3(),IK_=new THREE.Vector3(),IA=new THREE.Vector3(),IT=new THREE.Vector3(),IN=new THREE.Vector3(),IU=new THREE.Vector3(),IW=new THREE.Vector3(),
+  IQ=new THREE.Quaternion(),IQA=new THREE.Quaternion(),IP=new THREE.Quaternion(),IPi=new THREE.Quaternion(),IQ2=new THREE.Quaternion();
+function rotWorld(b,q){b.parent.getWorldQuaternion(IP);IPi.copy(IP).invert();IQ2.copy(IPi).multiply(q).multiply(IP);b.quaternion.premultiply(IQ2)}
+function legIK(th,sh,an,dy,tq){
+  th.getWorldPosition(IH);sh.getWorldPosition(IK_);an.getWorldPosition(IA);an.getWorldQuaternion(IQA);
+  IT.copy(IA);IT.y+=dy;
+  // soft reach: near full stretch the knee angle changes very fast for tiny length changes (the shaking), so extra
+  // length is eased in and never quite reaches a locked knee; measured against the clip's own pose so flat ground is untouched
+  const a=IH.distanceTo(IK_),b=IK_.distanceTo(IA),L=a+b,c0=IH.distanceTo(IA),sf=L*.9,
+    S=x=>x<=sf?x:sf+(L*.985-sf)*(1-Math.exp(-(x-sf)/(L*.985-sf))),t=IH.distanceTo(IT),c=t<=c0?t:Math.min(c0+S(t)-S(c0),Math.max(c0,L*.985));
+  const ang=x=>Math.acos(clamp((a*a+b*b-x*x)/(2*a*b),-1,1)),d=ang(c0)-ang(c);
+  // knee hinge: her sideways axis (made square to the thigh), so the knee folds straight forward along her walking
+  // direction. The clip's own legs turn out slightly, and bending about their own hinge splays the thighs outward
+  IU.subVectors(IK_,IH).normalize();IN.copy(LR).negate().addScaledVector(IU,LR.dot(IU)).normalize();
+  IW.subVectors(IA,IK_);IQ.setFromAxisAngle(IN,d);rotWorld(sh,IQ);IW.applyQuaternion(IQ);IA.copy(IK_).add(IW);
+  IU.subVectors(IA,IH).normalize();IW.subVectors(IT,IH).normalize();IQ.setFromUnitVectors(IU,IW);rotWorld(th,IQ);
+  if(tq)IQA.premultiply(tq);an.parent.getWorldQuaternion(IP);an.quaternion.copy(IP.invert().multiply(IQA))}
 let lastCrit=performance.now();
 function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.1,(now-lastCrit)/1000);lastCrit=now;
   CRIT.roach.forEach(c=>roachRun(c,t));CRIT.centi.forEach(c=>crossing(c,t));updateFlies(t);RUNNER.update(dt);
