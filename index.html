@@ -228,9 +228,9 @@ function hAt(x,z){let fx=clamp((x-HM.x0)/HM.cell,0,HM.NX-1.001);const fz=z/HM.ce
   return ((hF[a]*(1-tx)+hF[a+1]*tx)*(1-tz)+(hF[b]*(1-tx)+hF[b+1]*tx)*tz)*S.hills+(vn2(x*1.1,z*1.1)-.5)*.06-.05*pcore(x,z)}
 
 /* ---------------- shared shader code ---------------- */
-const U={uTime:{value:0},uHMap:{value:hTex},uHM:{value:new THREE.Vector4(HM.x0,HM.cell,HM.NX,HM.NZ)},uHills:{value:S.hills},uCamZ:{value:0},uWind:{value:1},uGust:{value:0},uPatch:{value:new THREE.Vector4(-12,24,3,20)},uGlowMap:{value:null},uGlowRect:{value:new THREE.Vector4(-12,-20,24,24)},uGlowGain:{value:1},uBands:{value:new THREE.Vector4()},uPx:{value:3},uPointI:{value:3},uFlowerGlow:{value:1.6},uPathCol:{value:null},uPathNor:{value:null},uCenCol:{value:null},uCenNor:{value:null},uMudCol:{value:null},uMudNor:{value:null},uPathOn:{value:0},uPalTint:{value:1},uFlowerSat:{value:.6},uView:{value:new THREE.Vector4(-.53,-.85,.7,6)}};
+const U={uFootA:{value:new THREE.Vector4(0,1e4,0,1)},uFootB:{value:new THREE.Vector4(0,1e4,0,1)},uFootK:{value:new THREE.Vector2()},uTime:{value:0},uHMap:{value:hTex},uHM:{value:new THREE.Vector4(HM.x0,HM.cell,HM.NX,HM.NZ)},uHills:{value:S.hills},uCamZ:{value:0},uWind:{value:1},uGust:{value:0},uPatch:{value:new THREE.Vector4(-12,24,3,20)},uGlowMap:{value:null},uGlowRect:{value:new THREE.Vector4(-12,-20,24,24)},uGlowGain:{value:1},uBands:{value:new THREE.Vector4()},uPx:{value:3},uPointI:{value:3},uFlowerGlow:{value:1.6},uPathCol:{value:null},uPathNor:{value:null},uCenCol:{value:null},uCenNor:{value:null},uMudCol:{value:null},uMudNor:{value:null},uPathOn:{value:0},uPalTint:{value:1},uFlowerSat:{value:.6},uView:{value:new THREE.Vector4(-.53,-.85,.7,6)}};
 const COMMON=`
-uniform float uTime;uniform sampler2D uHMap;uniform vec4 uHM;uniform float uHills;uniform float uCamZ;uniform float uWind;uniform float uGust;uniform vec4 uPatch;uniform sampler2D uGlowMap;uniform vec4 uGlowRect;uniform float uGlowGain;uniform vec4 uBands;uniform float uFlowerGlow;uniform sampler2D uOccMap;uniform vec4 uView;
+uniform vec4 uFootA;uniform vec4 uFootB;uniform vec2 uFootK;uniform float uTime;uniform sampler2D uHMap;uniform vec4 uHM;uniform float uHills;uniform float uCamZ;uniform float uWind;uniform float uGust;uniform vec4 uPatch;uniform sampler2D uGlowMap;uniform vec4 uGlowRect;uniform float uGlowGain;uniform vec4 uBands;uniform float uFlowerGlow;uniform sampler2D uOccMap;uniform vec4 uView;
 varying vec3 vWPos;
 float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
 float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.-2.*f);return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x),mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x),u.y);}
@@ -306,6 +306,10 @@ if(pm>.001){vec4 dc=vec4(.05,.035,.02,.5);vec3 dn=vec3(0.,0.,.15);
  // faked grass shadow: the trail darkens where the taller edge grass leans over it, in patches
  float dE=abs(q.x-pathX(q.y))-pathHW(q.y);float ao=1.-.6*smoothstep(-.95,.1,dE)*smoothstep(.2,.8,vnoise(q*1.7+4.)*.7+vnoise(q*6.)*.3);
  c=mix(c,dirt*ao,m);gPathM=m;gPathN=dn.xy;gGloss=dn.z;}
+// contact shadow under her shoes: the shoe's real shadow falls off to the side and the shadow map is too coarse for the
+// thin dark gap under a shoe, so the ground right beneath each planted foot is darkened in a soft shoe-sized oval
+{vec2 d=q-uFootA.xy;float e=pow(dot(d,uFootA.zw)/.19,2.)+pow(dot(d,vec2(-uFootA.w,uFootA.z))/.085,2.);c*=1.-.6*uFootK.x*(1.-smoothstep(.15,1.,e));
+ d=q-uFootB.xy;e=pow(dot(d,uFootB.zw)/.19,2.)+pow(dot(d,vec2(-uFootB.w,uFootB.z))/.085,2.);c*=1.-.6*uFootK.y*(1.-smoothstep(.15,1.,e));}
 c*=1.-smoothstep(17.,23.5,abs(vWPos.x));  // the land fades into night before its edge, so the sides never cut off
 diffuseColor.rgb=c;}`)
    .replace(...CLOUD_FRAG)};
@@ -1212,7 +1216,7 @@ function updateFlies(t){CRIT.flies.forEach((F,s)=>{const u=(t-F.t0)/F.D;if(F.z==
 /* the walker: an empty holder that keeps the figure (loaded below, before the loading screen lifts) on the trail
    with the camera. Faces -z (the direction of travel). */
 const RUNNER=(()=>{const root=new THREE.Group();scene.add(root);
-  return {root,update(dt){const on=S.runner!==false;root.visible=on;if(!on)return;
+  return {root,update(dt){const on=S.runner!==false;root.visible=on;if(!on){U.uFootK.value.set(0,0);return}
     // she wanders a little either side of the middle, less where the trail narrows
     const z=-camDist-lookAhead()*.62,x=pathX(z)+.3*Math.sin(camDist*.1)*clamp((pathHW(z)-.75)/.45,.2,1),dx=pathX(z-.5)-pathX(z+.5);
     root.position.set(x,hAt(x,z),z);root.rotation.y=-Math.atan(dx)}}})();
@@ -1393,11 +1397,19 @@ function footPlant(f,dt){
   // foot tilt: a foot on the ground turns to lie along the slope under it (heel and toe both down); a lifted foot
   // keeps the clip's angle, blending over the first few centimetres of lift so it doesn't flick
   // Standing still, the idle clip points her toes down further than heels allow, so her feet are turned a little
-  // flatter (heel down), fading out as she walks
+  // flatter (heel down), in step with how much of the idle clip is showing (not during the stop, whose feet are already level)
   if(!f.tn)f.tn=[new THREE.Vector3(0,1,0),new THREE.Vector3(0,1,0)],f.tq=[new THREE.Quaternion(),new THREE.Quaternion()];
-  const kt=1-Math.exp(-dt*10);[[xl,zl,hl],[xr,zr,hr]].forEach(([x,z,h],i)=>{const e=.2,gx=(hAt(x+e,z)-hAt(x-e,z))/(2*e),gz=(hAt(x,z+e)-hAt(x,z-e))/(2*e),w=1-sstep(.04,.25,h);
-    LV3.set(-gx*w,1,-gz*w).normalize();if(LV3.y<.94){LV3.y=0;LV3.setLength(Math.sqrt(1-.94*.94));LV3.y=.94}f.tn[i].lerp(LV3,kt).normalize();f.tq[i].setFromUnitVectors(LUP,f.tn[i]).multiply(LQ.setFromAxisAngle(LR,.3*(1-(f.gw||0))))});
-  legIK(F.lth,F.lsh,F.lfa,f.ikl,f.tq[0]);legIK(F.rth,F.rsh,F.rfa,f.ikr,f.tq[1])}
+  // The slope is measured along her heading across a shoe's length (heel to toe), so crests and dips give the average
+  // angle under the shoe, and only a few degrees of sideways roll are allowed, since an ankle in heels barely rolls
+  const kt=1-Math.exp(-dt*10),fx=LR.z,fz=-LR.x;[[xl,zl,hl],[xr,zr,hr]].forEach(([x,z,h],i)=>{const Lf=.22,Ls=.12,w=1-sstep(.04,.25,h);
+    const sf=(hAt(x+fx*Lf,z+fz*Lf)-hAt(x-fx*Lf,z-fz*Lf))/(2*Lf),ss=clamp(.3*(hAt(x+LR.x*Ls,z+LR.z*Ls)-hAt(x-LR.x*Ls,z-LR.z*Ls))/(2*Ls),-.07,.07);
+    const gx=fx*sf+LR.x*ss,gz=fz*sf+LR.z*ss;
+    LV3.set(-gx*w,1,-gz*w).normalize();if(LV3.y<.94){LV3.y=0;LV3.setLength(Math.sqrt(1-.94*.94));LV3.y=.94}f.tn[i].lerp(LV3,kt).normalize();f.tq[i].setFromUnitVectors(LUP,f.tn[i]).multiply(LQ.setFromAxisAngle(LR,.3*(f.idle&&f.idle.isRunning()?f.idle.getEffectiveWeight():0)))});
+  legIK(F.lth,F.lsh,F.lfa,f.ikl,f.tq[0]);legIK(F.rth,F.rsh,F.rfa,f.ikr,f.tq[1]);
+  // contact shadow (standing only, fading in as she comes to rest): each shoe's centre, a little toward the heel, and heading
+  const still=1-(f.gw||0);[[F.lh||F.lf,F.le||F.lt,hl,U.uFootA.value,'x'],[F.rh||F.rf,F.re||F.rt,hr,U.uFootB.value,'y']].forEach(([hb,tb,h,v,k])=>{
+    if(!hb||!tb)return;hb.getWorldPosition(LV2);tb.getWorldPosition(LV3);let dx=LV3.x-LV2.x,dz=LV3.z-LV2.z;const l=Math.hypot(dx,dz)||1;
+    v.set(LV2.x+dx*.42,LV2.z+dz*.42,dx/l,dz/l);U.uFootK.value[k]=(1-sstep(.03,.2,h))*sstep(.3,1,still)})}
 // two-bone IK: bend the knee until hip-to-ankle is the right length, swing the thigh to point the ankle at the target,
 // and keep the foot turned exactly as the clip had it
 const IH=new THREE.Vector3(),IK_=new THREE.Vector3(),IA=new THREE.Vector3(),IT=new THREE.Vector3(),IN=new THREE.Vector3(),IU=new THREE.Vector3(),IW=new THREE.Vector3(),
