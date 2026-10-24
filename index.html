@@ -191,7 +191,7 @@ function genRow(r,w=1,nb=null){
    const s=clamp((hR-hL)/(2*hw+4),-sm,sm),hc=lerp(at(xc),(hL+hR)*.5,.5);
    const dv=Math.max(Math.abs(hL-(hc-s*(hw+2))),Math.abs(hR-(hc+s*(hw+2))))*hs,W=clamp(2.5*dv+.6,1.6,6);
    for(let k=0;k<HM.NX;k++){const x=HM.x0+k*HM.cell,d=Math.abs(x-xc);if(d>hw+W)continue;rowH[k]=lerp(rowH[k],hc+s*(x-xc),1-sstep(hw+.15,hw+W,d))}}
-  if(graves.length)gravePads(z,t,amp,rowH);
+  if(graves.length)gravePads(z,t,amp,rowH,nb);
   // level a pad under each arch so both feet stand on the same ground
   if(song)for(const T of archTimes()){const za=archZ(T),dz=Math.abs(z-za);if(dz>3.4)continue;
     const f=1-sstep(1.5,3.4,dz),xc=pathX(z),fk=clamp((xc-HM.x0)/HM.cell,0,HM.NX-1.001),k0=Math.floor(fk),hc=lerp(rowH[k0],rowH[k0+1],fk-k0);
@@ -331,9 +331,9 @@ void grassBlade(out vec3 P,out vec3 N){
  float pn=vnoise(w2*.45);
  float hgt=mix(.12,.30,r2)*mix(.65,1.3,pn);
  float tallG=0.;
- {vec2 ouv=(w2-uGlowRect.xy)/uGlowRect.zw;vec2 og=(ouv.x>0.&&ouv.y>0.&&ouv.x<1.&&ouv.y<1.)?texture(uOccMap,ouv).rg:vec2(0.);
-  float clump=smoothstep(.3,.68,vnoise(w2*2.6+r1*.35));tallG=og.y*clump;
-  hgt*=(1.-.94*og.x*(1.-tallG))*(1.+mix(1.6,3.2,r4)*tallG);}
+ {vec2 ouv=(w2-uGlowRect.xy)/uGlowRect.zw;vec3 og=(ouv.x>0.&&ouv.y>0.&&ouv.x<1.&&ouv.y<1.)?texture(uOccMap,ouv).rgb:vec3(0.);
+  float clump=smoothstep(.3,.68,vnoise(w2*2.6+r1*.35));tallG=og.y*clump*(1.-og.z);
+  hgt*=(1.-.94*og.x*(1.-tallG))*(1.+mix(1.6,3.2,r4)*tallG)*(1.-og.z);}
  {float pm=pathMask(w2);float k=pm+(r1-.5)*.6;hgt*=1.-smoothstep(.18,.72,k);
   // a band of taller, uncut grass right along the trail edge (nobody mows there)
   float de=abs(w2.x-pathX(w2.y))-pathHW(w2.y);float eb=smoothstep(-.1,.2,de)*(1.-smoothstep(.5,1.4,de));float vt=smoothstep(.25,.75,vnoise(w2*.9)*.65+r5*.35);hgt*=1.+eb*vt*1.6;}
@@ -393,15 +393,17 @@ const FLOWER_DEFS={
   geranium:{file:'flower3.glb',band:1,pool:320,h:[.48,.62],grow:1.1,lat:46,br:.09,gr:.9, shadow:false,glow:[[.75,.35,1],[.6,.38,1],[.9,.42,1]]},
   spider:  {file:'flower4.glb',band:2,pool:420,h:[.48,.62],grow:1.0,lat:34,br:.18,gr:1.0, shadow:false,glow:[[1,.4,.8],[1,.5,.62],[.9,.35,1]]},
   glory:   {file:'flower2.glb',band:3,pool:900,h:[.24,.34],grow:.8, lat:30,br:.12,gr:.75,shadow:false,glow:[[.45,.65,1],[.55,.55,1],[.4,.82,1]]},
-  phlox:   {file:'flower1.glb',band:1,pool:240,h:[.62,.82],grow:1.2,lat:40,br:.1, gr:1.0, shadow:false,glow:[[1,.45,.9],[.95,.55,1],[.85,.45,1]]},
+  phlox:   {file:'flower1.glb',band:1,pool:240,h:[.62,.82],grow:1.2,lat:40,br:.1, gr:1.0, shadow:true,glow:[[1,.45,.9],[.95,.55,1],[.85,.45,1]]},
   hibiscus:{file:'flower6.glb',band:1,pool:200,h:[.7,.95],grow:1.25,lat:36,br:.2,gr:1.1, shadow:false,glow:[[1,.4,.6]]},
   dand1:   {file:'dandelion1.glb',band:3,pool:140,h:[.34,.46],grow:.9,lat:44,br:.28,gr:.8,shadow:false,glow:[[1,.85,.4]]},
   dand2:   {file:'dandelion2.glb',band:3,pool:140,h:[.4,.52],grow:.9,lat:44,br:.15,gr:.8,shadow:false,glow:[[1,.85,.4]]},
-  dand3:   {file:'dandelion3.glb',band:3,pool:140,h:[.4,.52],grow:.9,lat:44,br:.15,gr:.8,shadow:false,glow:[[1,.85,.4]]}
+  dand3:   {file:'dandelion3.glb',band:3,pool:140,h:[.4,.52],grow:.9,lat:44,br:.15,gr:.8,shadow:false,glow:[[1,.85,.4]]},
+  // mushrooms push up as a closed button (cap edges curled down round the stem) and the cap spreads open on the hit
+  mush:    {file:'mushroom.glb',band:0,pool:240,h:[.42,.6],space:.42,grow:1.4,lat:16,br:.32,gr:.7,shadow:false,fold:-.75,glow:[[.6,.9,1]]}
 };
 const FLOWER_V=`
 attribute float aSpawn;attribute float aSeed;attribute vec3 aGlow;attribute float _petal;attribute vec3 _bc;attribute float aGrowT;
-uniform float uGrow;uniform float uBand;uniform float uHeadY;
+uniform float uGrow;uniform float uBand;uniform float uHeadY;uniform float uFold;
 varying float vPet;varying vec3 vObj;varying vec3 vBC;varying vec3 vGlowC;varying float vGI;varying float vSeed;
 void flowerXform(inout vec3 p){
  float age=uTime-aSpawn;float vis=step(0.,age);float g=clamp(age/aGrowT,0.,1.);
@@ -410,7 +412,7 @@ void flowerXform(inout vec3 p){
  float op=backOut(clamp((g-.35)/.55,0.,1.));
  float w=smoothstep(.3,.7,_petal);
  vec3 rel=p-_bc;float fold=1.-op;float r=length(rel.xz);
- vec3 bud=rel;bud.xz*=mix(1.,.3,fold);bud.y+=fold*r*.85;
+ vec3 bud=rel;bud.xz*=mix(1.,.3,fold);bud.y+=fold*r*uFold;
  p=mix(p,_bc+bud*headS,w);
  p.y*=stemS*vis;p.xz*=mix(.3,1.,st)*vis;
  vec2 ip=instanceMatrix[3].xz;float isc=length(instanceMatrix[0].xyz);
@@ -524,7 +526,7 @@ function recolorFlowers(){
 class FlowerKind{
   constructor(def,gltf){
     this.def=def;this.pool=def.pool;this.n=0;this.headY=gltf.parser.json.asset.extras.headY;
-    const ku={uGrow:{value:def.grow},uBand:{value:def.band},uHeadY:{value:this.headY},uLat:{value:def.lat},uBR:{value:def.br}};
+    const ku={uFold:{value:def.fold??.85},uGrow:{value:def.grow},uBand:{value:def.band},uHeadY:{value:this.headY},uLat:{value:def.lat},uBR:{value:def.br}};
     this.aSpawn=new THREE.InstancedBufferAttribute(new Float32Array(def.pool),1);
     this.aSeed=new THREE.InstancedBufferAttribute(new Float32Array(def.pool),1);
     this.aGlow=new THREE.InstancedBufferAttribute(new Float32Array(def.pool*3),3);
@@ -566,7 +568,10 @@ const PROP_DEFS={
   skull: {files:['forgotten_skull.glb'],pool:8,scale:[2.1,2.5],sink:.36,align:.85,rate:.035,rad:.1,tilt:.55},
   log:   {files:['log1.glb'],pool:2,scale:[.45,.6],sink:.2,align:.35,rad:.7,tilt:.06,edge:[1.2,3.4],pre:[0,0,.7071068,.7071068]},
   tree:  {files:['dead_tree.glb'],pool:5,scale:[2,2.8],sink:.015,align:.15,rate:.035,rad:.55,tilt:.09,edge:[4.4,6.6]},
-  grave: {files:['graveheadstone.glb','graveheadstone2.glb','graveheadstone3.glb'],pool:2,scale:[2.85,2.85],sinkM:[.07,.075,.085],align:.2,rad:.42}
+  grave: {files:['graveheadstone.glb','graveheadstone2.glb','graveheadstone3.glb','graveheadstone4.glb'],pool:2,scale:[2.85,2.85],sinkM:[.07,.075,.085,.05],align:.2,rad:.42},
+  tomb:  {files:['raised_tomb.glb'],pool:2,scale:[1.1,1.1],sinkM:[.36],align:0,rad:1.5,flat:true},
+  // low dry-stone walls (about waist height) running out from both sides of an arch; they follow the ground (see follow)
+  wall:  {files:['stone_wall.glb'],pool:4,scale:[1,1],sv:[1,1,.6],sink:.05,align:0,rad:.01,follow:true}
 };
 // lowest part of a model (its base), sampled as points; used to rest it on the terrain
 function bottomPts(root,pre){const P=[],Y=[];let mn=Infinity,mx=-Infinity;const v=new THREE.Vector3();
@@ -575,6 +580,7 @@ function bottomPts(root,pre){const P=[],Y=[];let mn=Infinity,mx=-Infinity;const 
   const n=B.length/3,step=Math.max(1,Math.ceil(n/160)),out=[];for(let i=0;i<n;i+=step)out.push(B[i*3],B[i*3+1],B[i*3+2]);
   return out}
 const PADR=4.2;
+const FOLLOW_V='{mat4 fm=modelMatrix*instanceMatrix;vec2 fw=(fm*vec4(transformed,1.)).xz,fo=(fm*vec4(0.,0.,0.,1.)).xz;transformed.y+=(hAt(fw)-hAt(fo))/length(fm[1].xyz);}';
 class PropModel{
   constructor(def,gltf,idx){
     this.def=def;this.idx=idx;this.pool=def.pool;this.n=0;this.size=gltf.parser.json.asset.extras.size;this.live=[];this.meshes=[];let im=null;
@@ -584,14 +590,16 @@ class PropModel{
         sh.fragmentShader=addCommon(sh.fragmentShader).replace(...CLOUD_FRAG)};
       mat.customProgramCacheKey=()=>'prop';
       if(def===PROP_DEFS.tree){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb;','reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb*exp(-max(0.,vWPos.y-hAt(vWPos.xz))*.7);')};mat.customProgramCacheKey=()=>'prop-tree'}
+      if(def.follow){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.vertexShader=sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n'+FOLLOW_V)};mat.customProgramCacheKey=()=>'prop-follow'}
       const m=new THREE.InstancedMesh(o.geometry,mat,def.pool);if(im)m.instanceMatrix=im;else im=m.instanceMatrix;
+      if(def.follow){const dm=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking});dm.onBeforeCompile=sh=>{Object.assign(sh.uniforms,U);sh.vertexShader=addCommon(sh.vertexShader).replace('#include <begin_vertex>','#include <begin_vertex>\n'+FOLLOW_V)};dm.customProgramCacheKey=()=>'follow-depth';m.customDepthMaterial=dm}
       m.count=0;m.castShadow=true;m.receiveShadow=true;m.frustumCulled=false;scene.add(m);this.meshes.push(m)});
     this.im=im;this.pre=new THREE.Quaternion(...(def.pre||[0,0,0,1]));this.bottom=bottomPts(gltf.scene,this.pre);
   }
   spawn(x,z,yaw,scale,tilt){
     const i=this.n%this.pool,rec={x,z,yaw,scale,tilt,i};this.live[i]=rec;this.place(rec);
     this.n++;const c=Math.min(this.n,this.pool);for(const m of this.meshes)m.count=c;this.im.needsUpdate=true;
-    occAdd(x,z,this.def.rad*scale,(this.def===PROP_DEFS.grave||this.def===PROP_DEFS.tree||this.def===PROP_DEFS.log)?1:0);
+    occAdd(x,z,this.def.rad*scale,(this.def===PROP_DEFS.grave||this.def===PROP_DEFS.tree||this.def===PROP_DEFS.log||this.def===PROP_DEFS.tomb)?1:0);
   }
   place(r){const d=this.def,s=this.size,rad=Math.max(s[0],s[2])*.5*r.scale;
     const e=Math.max(.08,rad*.7),hx=hAt(r.x-e,r.z)-hAt(r.x+e,r.z),hz=hAt(r.x,r.z-e)-hAt(r.x,r.z+e);
@@ -600,7 +608,10 @@ class PropModel{
     // rest on the terrain: no base point may sit above the ground under it, so nothing hangs in the air
     // on a slope or tilt; the lowest point then sinks in a little so the base is hidden
     const sc=r.scale,B=this.bottom,sv=d.sv||[1,1,1],sx=sc*sv[0],sy=sc*sv[1],sz=sc*sv[2];let y0=Infinity;
-    for(let i=0;i<B.length;i+=3){_v.set(B[i]*sx,B[i+1]*sy,B[i+2]*sz).applyQuaternion(_q);const c=hAt(r.x+_v.x,r.z+_v.z)-_v.y;if(c<y0)y0=c}
+    // follow: the wall rides the ground itself; flat: the tomb stands on its levelled terrace (its plinth sits ~.3 above
+    // the model's lowest scan scrap, which sinkM allows for)
+    if(d.follow||d.flat)y0=hAt(r.x,r.z);
+    else for(let i=0;i<B.length;i+=3){_v.set(B[i]*sx,B[i+1]*sy,B[i+2]*sz).applyQuaternion(_q);const c=hAt(r.x+_v.x,r.z+_v.z)-_v.y;if(c<y0)y0=c}
     const sink=d.sinkM?d.sinkM[this.idx]*sc:s[1]*sc*d.sink;
     _m.compose(_p.set(r.x,y0-sink,r.z),_q,_s.set(sx,sy,sz));_m.toArray(this.im.array,r.i*16)}
   replaceAll(){for(const r of this.live)if(r)this.place(r);this.im.needsUpdate=true}
@@ -617,8 +628,9 @@ const occAttr=new THREE.InstancedBufferAttribute(OC.d,4);occGeo.setAttribute('aD
 const occRT=new THREE.WebGLRenderTarget(512,512,{type:THREE.HalfFloatType,depthBuffer:false});
 const occScene=new THREE.Scene(),occMesh=new THREE.Mesh(occGeo,new THREE.ShaderMaterial({uniforms:U,depthTest:false,depthWrite:false,
   blending:THREE.CustomBlending,blendEquation:THREE.MaxEquation,blendSrc:THREE.OneFactor,blendDst:THREE.OneFactor,
-  vertexShader:COMMON+'attribute vec4 aDisc;varying vec2 vQ;varying float vT;void main(){vT=aDisc.w;vQ=position.xy*1.6;vec2 w=aDisc.xy+position.xy*aDisc.z*1.6;gl_Position=vec4((w-uGlowRect.xy)/uGlowRect.zw*2.-1.,0.,1.);}',
-  fragmentShader:'varying vec2 vQ;varying float vT;void main(){float r=length(vQ);float tall=vT>.5?smoothstep(.42,.7,r)*(1.-smoothstep(1.05,1.55,r)):0.;gl_FragColor=vec4((1.-smoothstep(.55,1.15,r))*(vT>.5?.0:1.)+(vT>.5?1.-smoothstep(.38,.62,r):0.),tall,0.,1.);}'}));
+  vertexShader:COMMON+'attribute vec4 aDisc;varying vec2 vQ;varying float vT;void main(){vT=aDisc.w;vQ=position.xy*1.6;vec2 p=position.xy;if(aDisc.w>1.5){float a=fract(aDisc.w-2.)*6.2832-3.1416,c=cos(a),s=sin(a);p=vec2(p.x*c+p.y*s,-p.x*s+p.y*c);}vec2 w=aDisc.xy+p*aDisc.z*1.6;gl_Position=vec4((w-uGlowRect.xy)/uGlowRect.zw*2.-1.,0.,1.);}',
+  // type 2 is a rotated square (yaw packed into the type) that clears grass completely, for flat stone footprints
+  fragmentShader:'varying vec2 vQ;varying float vT;void main(){if(vT>1.5){float b=max(abs(vQ.x),abs(vQ.y));gl_FragColor=vec4(0.,0.,1.-smoothstep(.96,1.02,b),1.);return;}float r=length(vQ);float tall=vT>.5?smoothstep(.42,.7,r)*(1.-smoothstep(1.05,1.55,r)):0.;gl_FragColor=vec4((1.-smoothstep(.55,1.15,r))*(vT>.5?.0:1.)+(vT>.5?1.-smoothstep(.38,.62,r):0.),tall,0.,1.);}'}));
 occMesh.frustumCulled=false;occScene.add(occMesh);
 U.uOccMap={value:occRT.texture};
 function occAdd(x,z,r,type=0){const i=OC.n%OCN;OC.d.set([x,z,r,type],i*4);OC.n++;occGeo.instanceCount=Math.min(OC.n,OCN);occAttr.needsUpdate=true}
@@ -635,9 +647,18 @@ function renderOcc(){renderer.setRenderTarget(occRT);renderer.setClearColor(0x00
 const OBST=[];
 function onPath(x,z,m){return Math.abs(x-pathV(z))<pathHW(z)+m}
 const graveX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.75+g.off);
-function graveRes(x,z,r){for(const g of graves){const gz=itemZ(g);if(Math.abs(gz-z)>4)continue;const gx=graveX(g,gz);if((x-gx)**2+(z-gz)**2<(2.5+r)**2)return true}return false}
+// the raised tomb lies lengthwise beside the trail on its own rectangular terrace
+const TOMB={hx:1.46,hz:2.31,m:.55,fall:2.8};TOMB.R=TOMB.hz+TOMB.m+TOMB.fall;
+const tombX=(g,z)=>pathV(z)+g.side*(pathHW(z)+1.5+TOMB.hx+g.off*.5);
+function graveRes(x,z,r){for(const g of graves){const gz=itemZ(g);if(Math.abs(gz-z)>6)continue;
+  if(g.k==='tomb'){if(Math.abs(x-tombX(g,gz))<TOMB.hx+1+r&&Math.abs(z-gz)<TOMB.hz+1+r)return true;continue}
+  const gx=graveX(g,gz);if((x-gx)**2+(z-gz)**2<(2.5+r)**2)return true}return false}
+// wall segments (centre, direction along the wall, half length), so nothing grows inside them
+const WALL={segs:[]};
+function wallRes(x,z,r){for(let i=WALL.segs.length-1;i>=0;i--){const w=WALL.segs[i];if(w.z>-camDist+HM.back+16){WALL.segs.splice(i,1);continue}
+  const dx=x-w.x,dz=z-w.z,u=dx*w.ux+dz*w.uz,v=-dx*w.uz+dz*w.ux;if(Math.abs(u)<w.h+r&&Math.abs(v)<.65+r)return true}return false}
 function blocked(x,z,r=0){for(let i=OBST.length-1;i>=0;i--){const o=OBST[i];if(o.z>-camDist+HM.back+2){OBST.splice(i,1);continue}if((x-o.x)**2+(z-o.z)**2<(o.r+r)**2)return true}
-  return onPath(x,z,.2+r)||graveRes(x,z,r)||archRes(x,z,r)}
+  return onPath(x,z,.2+r)||graveRes(x,z,r)||archRes(x,z,r)||wallRes(x,z,r)}
 
 /* ---------------- stone arch ----------------
    The walker starts each song just before an arch and walks through it; a second arch stands where the walker arrives
@@ -654,10 +675,18 @@ function updateArches(){if(!PROPS.arch||!PROPS.arch[0]||!song)return;const lim=s
   // (and let a start/end arch that no longer matches its spot be placed again)
   const fits=z=>archTimes().some(T=>Math.abs(z-archZ(T))<2);let drop=false;
   for(const r of A.live)if(r&&r.z<-camDist-1&&!fits(r.z)){r.z=Infinity;drop=true}
+  {const W=PROPS.wall&&PROPS.wall[0],fw=z=>archTimes().some(T=>Math.abs(z-archZ(T))<3);let dw=false;
+   if(W){for(const r of W.live)if(r&&r.z<-camDist-1&&!fw(r.z)){r.z=Infinity;dw=true}if(dw){W.cull(-camDist+U.uPatch.value.z+3);WALL.segs=WALL.segs.filter(w=>fw(w.z)||w.z>-camDist-1)}}}
   if(drop){A.cull(-camDist+U.uPatch.value.z+3);for(const T of archTimes())if(!A.live.some(r=>r&&Math.abs(r.z-archZ(T))<2))ARCH.placed[T]=false}
   for(const T of archTimes()){if(ARCH.placed[T])continue;const za=archZ(T),d=-za-camDist;if(d>lim||d<-HM.back)continue;
     ARCH.placed[T]=true;PROPS.arch[0].spawn(pathX(za),za,archYaw(za),ARCH.scale,[0,0]);
-    for(const [fx,fz] of archFeet(za))occAdd(fx,fz,1.3,1)}}
+    for(const [fx,fz] of archFeet(za))occAdd(fx,fz,1.3,1);
+    // a song you load starts at the arch she stopped at without growing new walls there
+    if(T>0||song.first)spawnWalls(za)}}
+function spawnWalls(za){const W=PROPS.wall&&PROPS.wall[0];if(!W)return;
+  const xc=pathX(za),a=archYaw(za),c=Math.cos(a),s=Math.sin(a),h=W.size[0]*.5,off=ARCH.foot+.9+h;
+  for(const sd of [-1,1]){const x=xc+sd*c*off,z=za-sd*s*off;W.spawn(x,z,a+(Math.random()<.5?0:Math.PI),1,[0,0]);WALL.segs.push({x,z,ux:c,uz:-s,h});
+    for(let k=-h+.5;k<=h-.4;k+=1.25)occAdd(x+c*k,z-s*k,.62,1)}}
 
 /* ---------------- the song's prop schedule ---------------- */
 function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -668,13 +697,14 @@ function buildSchedule(dur){
     while(t<dur){sched.push({t,k,m:R()*d.files.length|0,x:(R()*2-1)*8.5,r:[R(),R(),R(),R(),R()]});t+=-Math.log(1-R()*.999)/d.rate}}
   {const d=PROP_DEFS.tree;let t=R()*12;while(t<dur){sched.push({t,k:'tree',m:0,side:R()<.5?-1:1,r:[R(),R(),R(),R(),R()]});t+=12-Math.log(1-R()*.999)/d.rate}}
   for(const f of [.34,.66])sched.push({t:(f+(R()-.5)*.1)*dur,k:'log',m:0,side:R()<.5?-1:1,r:[R(),R(),R(),R(),R()]});
-  const gt=[.12,.31,.5,.69,.88].map(f=>f*dur+(R()-.5)*.05*dur),order=[0,1,2].sort(()=>R()-.5);
-  graves=gt.map((t,i)=>({t,k:'grave',m:order[i%3],side:R()<.5?-1:1,off:R()*1.3,yaw:(R()-.5)*.42,r:[R(),R(),R(),R(),R()]}));
+  const gt=[.12,.31,.5,.69,.88].map(f=>f*dur+(R()-.5)*.05*dur),order=[0,1,2,3].sort(()=>R()-.5);
+  graves=gt.map((t,i)=>({t,k:'grave',m:order[i%4],side:R()<.5?-1:1,off:R()*1.3,yaw:(R()-.5)*.42,r:[R(),R(),R(),R(),R()]}));
   // roaches run past three times a song, centipedes cross twice, fireflies drift over in three swarms
   ARCH.placed={};
   CRIT.roach.forEach((c,i)=>{c.t0=((i+.3+R()*.5)/3)*dur;c.D=5;c.v=8;c.side=R()<.5?1:-1;c.z=null});
   CRIT.centi.forEach((c,i)=>{c.t0=((i+.2+R()*.5)/2)*dur;c.D=14;c.dir=R()<.5?1:-1;c.z=null});
   CRIT.flies.forEach((c,i)=>{c.t0=((i+.2+R()*.5)/3)*dur;c.D=12;c.z=null});
+  if(dur>50)graves.push({t:(.405+(R()-.5)*.03)*dur,k:'tomb',m:0,side:R()<.5?-1:1,off:R(),yaw:(R()-.5)*.08,r:[R(),R(),R(),R(),R()]});
   sched.push(...graves);sched.sort((a,b)=>a.t-b.t);sPtr=0;
 }
 // never spawn beyond the terrain that has been written yet, or props land on stale rows and float later
@@ -682,6 +712,11 @@ const spawnAhead=()=>Math.min(visFar()+4,HM.ahead-2);
 const itemZ=it=>-(camDist+lookAhead()+(it.t-songTime())*speedMS());
 function spawnItem(it){
   const d=PROP_DEFS[it.k],z=itemZ(it),r=it.r,M=PROPS[it.k][it.m];if(!M)return;
+  if(it.k==='tomb'){const tx=tombX(it,z),sc=d.scale[0],ya=archYaw(z)+it.yaw;M.spawn(tx,z,ya,sc,[0,0]);OBST.push({x:tx,z,r:TOMB.hx+.3});
+    for(const k of [-1.6,0,1.6])occAdd(tx,z+k,1.55,1);
+    // no grass through the plinth: two squares the width of the base, turned with the tomb, cover its footprint
+    const c=Math.cos(ya),s=Math.sin(ya),o=TOMB.hz-TOMB.hx,ty=2+((ya/6.2832+.5)%1+1)%1;
+    for(const k of [-o,o])occAdd(tx+s*k,z+c*k,TOMB.hx,ty);return}
   if(it.k==='grave'){const gs=d.scale[0],gx=graveX(it,z);M.spawn(gx,z,it.yaw,gs,[(r[0]-.5)*.06,(r[1]-.5)*.06]);OBST.push({x:gx,z,r:.8*gs});return}
   const n=d.cluster?d.cluster[0]+Math.floor(r[0]*(d.cluster[1]-d.cluster[0]+1)):1;
   const sc0=lerp(d.scale[0],d.scale[1],r[2]),R0=d.edge?d.rad*sc0:Math.max(M.size[0],M.size[2])*.5*sc0;
@@ -697,7 +732,7 @@ function spawnItem(it){
 }
 function updateProps(){updateArches();if(!sched.length||!PROPS.pebble)return;const lim=spawnAhead();
   while(sPtr<sched.length&&-itemZ(sched[sPtr])-camDist<lim){const it=sched[sPtr++];if(-itemZ(it)-camDist>-HM.back)spawnItem(it)}}
-function resetProps(){for(const k in PROPS)for(const M of PROPS[k])if(M)M.clear();occClear();OBST.length=0;ARCH.placed={};
+function resetProps(){for(const k in PROPS)for(const M of PROPS[k])if(M)M.clear();occClear();OBST.length=0;WALL.segs.length=0;ARCH.placed={};
   if(!song)return;const t0=songTime()-(lookAhead()+HM.back)/speedMS();sPtr=0;while(sPtr<sched.length&&sched[sPtr].t<t0)sPtr++;updateProps()}
 // a new song (or a replay) continues from where the last one stopped: keep every prop already standing, and let the
 // new schedule fill only ground that hasn't been populated yet. The arch the walker stopped at becomes the start arch.
@@ -708,9 +743,16 @@ function continueProps(){if(!song)return;ARCH.placed={};const lim=spawnAhead();
 // a model list can have gaps while its files are still loading, so skip the gaps
 function replaceProps(){for(const k in PROPS)for(const M of PROPS[k])if(M)M.replaceAll()}
 // flatten the ground under each headstone so it sits in the earth
-function gravePads(z,t,amp,rowH){
-  for(const g of graves){const dz=-(g.t-t)*speedMS();if(Math.abs(dz)>PADR)continue;
-    const zg=z+dz;if(g.hc===undefined||g.hcZ!==Math.round(zg*8)){const a=ampAt(g.t);g.x=graveX(g,zg);g.hc=a*((fbm(g.x*.07+100,zg*.07,3)*2-1)*1.5+(fbm(g.x*.21,zg*.21+50,2)*2-1)*.35);g.hcZ=Math.round(zg*8)}
+function gravePads(z,t,amp,rowH,nb=null){
+  for(const g of graves){const tb=g.k==='tomb',dz=-(g.t-t)*speedMS();if(Math.abs(dz)>(tb?TOMB.R:PADR))continue;
+    const zg=z+dz;
+    // the tomb's terrace takes its level from the real ground already laid next to it (the neighbouring row), so it sits
+    // on the hillside rather than in a hollow below it
+    if(tb&&g.hc===undefined&&nb!==null){g.x=tombX(g,zg);const ni=((nb%HM.NZ)+HM.NZ)%HM.NZ*HM.NX;let sm=0,n=0;
+      for(let x=g.x-TOMB.hx;x<=g.x+TOMB.hx;x+=.25){const k=clamp(Math.round((x-HM.x0)/HM.cell),0,HM.NX-1);sm+=hF[ni+k];n++}g.hc=sm/n;g.hcZ=Math.round(zg*8)}
+    if(g.hc===undefined||(!tb&&g.hcZ!==Math.round(zg*8))){const a=ampAt(g.t);g.x=tb?tombX(g,zg):graveX(g,zg);g.hc=a*((fbm(g.x*.07+100,zg*.07,3)*2-1)*1.5+(fbm(g.x*.21,zg*.21+50,2)*2-1)*.35);g.hcZ=Math.round(zg*8)}
+    // the tomb gets a level rectangular terrace a little wider than its plinth, easing out into the hillside
+    if(tb){const qz=Math.max(0,Math.abs(dz)-TOMB.hz-TOMB.m);for(let k=0;k<HM.NX;k++){const x=HM.x0+k*HM.cell,qx=Math.max(0,Math.abs(x-g.x)-TOMB.hx-TOMB.m),dd=Math.hypot(qx,qz);if(dd>TOMB.fall)continue;rowH[k]=lerp(rowH[k],g.hc,1-sstep(0,TOMB.fall,dd))}continue}
     for(let k=0;k<HM.NX;k++){const x=HM.x0+k*HM.cell,dd=Math.hypot(x-g.x,dz);if(dd>PADR)continue;const w=1-sstep(PADR*.4,PADR,dd);rowH[k]=lerp(rowH[k],g.hc,w)}}
 }
 
@@ -729,7 +771,10 @@ const bassK=()=>.7+.8*(evB??gust);
 const pk=k=>curLead-.9*K[k].def.grow;
 const fsz=k=>lerp(K[k].def.h[0],K[k].def.h[1],Math.random())*S.fsize*bassK();
 function cluster(k,n,rad){if(n<=0||!K[k])return;const c=spot();if(!c)return;rad*=S.fsize*bassK();
-  for(let i=0;i<n;i++){const a=Math.random()*6.283,r=rad*Math.sqrt(Math.random()),x=c.x+Math.cos(a)*r,z=c.z+Math.sin(a)*r;if(blocked(x,z))continue;K[k].spawn(x,z,fsz(k),pk(k)+i*.025+Math.random()*.025)}}
+  // kinds with a spacing (mushrooms) keep their caps from overlapping inside a cluster
+  const sp=(K[k].def.space||0)*S.fsize*bassK(),pts=[];
+  for(let i=0;i<n;i++){let x,z,ok=false;for(let tr=0;tr<(sp?6:1)&&!ok;tr++){const a=Math.random()*6.283,r=(rad+sp*.6)*Math.sqrt(Math.random());x=c.x+Math.cos(a)*r;z=c.z+Math.sin(a)*r;ok=!pts.some(p=>(p[0]-x)**2+(p[1]-z)**2<sp*sp)}
+    if(!ok||blocked(x,z))continue;pts.push([x,z]);K[k].spawn(x,z,fsz(k),pk(k)+i*.025+Math.random()*.025)}}
 let lastBig=-9;
 function onEvent(e){
   if(S.density<=0||!K.lily)return;
@@ -741,16 +786,18 @@ function onEvent2(e){
   const m=S.density*(.15+1.25*E*E);
   if(e.type==='beat'){if(e.down&&E>.35)for(let i=0;i<2;i++)if(Math.random()<.8*Math.min(1,S.density)){const p=spot(.25);if(p)K.phlox.spawn(p.x,p.z,fsz('phlox'),pk('phlox')+i*.06)}return}
   const s=e.s;
-  if(e.b===0){if(s>.25&&clock-lastBig>.45/Math.max(.3,S.density)){const p=spot(.4);if(p){K.lily.spawn(p.x,p.z,fsz('lily')*(.85+.3*s),pk('lily'));lastBig=clock}}else cluster('spider',Math.round(s*m),.3)}
+  if(e.b===0){if(s>.25&&clock-lastBig>.45/Math.max(.3,S.density)){const p=spot(.4);if(p){K.lily.spawn(p.x,p.z,fsz('lily')*(.85+.3*s),pk('lily'));lastBig=clock}}
+    else if(K.mush&&Math.random()<.28)cluster('mush',Math.round(1+s*2*m),.3);else cluster('spider',Math.round(s*m),.3)}
   else if(e.b===1){if(Math.random()<.35)cluster('hibiscus',Math.round(.5+s*1.2*m),.45);else cluster('geranium',Math.round(.6+s*2*m),.45)}
   else if(e.b===2)cluster('spider',Math.round(.6+s*2.2*m),.5);
   else if(Math.random()<.3)cluster(['dand1','dand2','dand3'][Math.random()*3|0],Math.round(.5+s*1.6*m),.4);
+  else if(K.mush&&Math.random()<.05)cluster('mush',Math.round(1+s*2*m),.3);
   else cluster('glory',Math.round(1+s*4*m),.3+.4*s);
 }
 function preseed(){camera.updateMatrixWorld();const g0=gust;gust=.35;
   for(let i=0;i<10;i++)cluster('glory',3,.3);
   for(let i=0;i<7;i++){cluster('geranium',1,.1);cluster('spider',1,.1)}
-  for(let i=0;i<3;i++)cluster('phlox',1,.1);for(let i=0;i<2;i++)cluster('lily',1,.1);
+  for(let i=0;i<3;i++)cluster('phlox',1,.1);for(let i=0;i<2;i++)cluster('mush',2,.2);for(let i=0;i<2;i++)cluster('lily',1,.1);
   for(const k in K)for(let i=0;i<K[k].n;i++)K[k].aSpawn.array[i]-=30;GL.spawn.fill(-30,0,Math.min(GL.n,GN));glowDirty=true;gust=g0}
 
 /* ---------------- loading every model up front ---------------- */
@@ -1166,7 +1213,8 @@ function updateFlies(t){CRIT.flies.forEach((F,s)=>{const u=(t-F.t0)/F.D;if(F.z==
    with the camera. Faces -z (the direction of travel). */
 const RUNNER=(()=>{const root=new THREE.Group();scene.add(root);
   return {root,update(dt){const on=S.runner!==false;root.visible=on;if(!on)return;
-    const z=-camDist-lookAhead()*.62,x=pathX(z)+.3*Math.sin(camDist*.1),dx=pathX(z-.5)-pathX(z+.5);
+    // she wanders a little either side of the middle, less where the trail narrows
+    const z=-camDist-lookAhead()*.62,x=pathX(z)+.3*Math.sin(camDist*.1)*clamp((pathHW(z)-.75)/.45,.2,1),dx=pathX(z-.5)-pathX(z+.5);
     root.position.set(x,hAt(x,z),z);root.rotation.y=-Math.atan(dx)}}})();
 // Clothing exported without skin weights would stay frozen in the rest pose while the body walks. Give each loose
 // mesh the bone weights of the nearest points on the body (a weight transfer, as in Blender/Maya), so it moves with the skeleton.
@@ -1314,7 +1362,12 @@ function updateCritters(){const t=songTime(),now=performance.now(),dt=Math.min(.
     // her hips stay exactly where she stood through the crossfade, then ease into the walking spot
     f.r=f.hips?f.hold.worldToLocal(f.hips.getWorldPosition(f.hv)).z-f.obj.position.z:0;
     if(f.state==='walk'){f.tw+=dt;f.off=(f.d0-f.r)*Math.exp(-f.tw*.25)}
-    f.obj.position.z=f.off;footPlant(f,dt)}}
+    f.obj.position.z=f.off;footPlant(f,dt);
+    // keep her feet centred on her line: the clip can carry a small sideways offset, so slowly (over several steps,
+    // leaving the sway from step to step alone) shift her until the average point between her feet sits on it
+    if(f.state==='walk'&&f.FB&&f.FB.lf&&f.FB.rf){const r=RUNNER.root,c=Math.cos(r.rotation.y),s=Math.sin(r.rotation.y);
+      f.FB.lf.getWorldPosition(LV2);f.FB.rf.getWorldPosition(LV3);
+      const d=((LV2.x+LV3.x)/2-r.position.x)*c-((LV2.z+LV3.z)/2-r.position.z)*s;f.hold.position.x-=d*(1-Math.exp(-dt*.4))}}}
 frame();
 $('play').disabled=true;
 let loadMsg='Loading models…',demoMsg='';
@@ -1330,7 +1383,7 @@ const models=loadModels((d,n)=>{P.m=d/n;paint();loadMsg=`Loading models ${d}/${n
     if(!buf){demoMsg='building the demo track';P.d=.1;paint();showLoad();buf=await makeDemo()}
     P.d=.3;paint();
     const an=await analyze(buf,p=>{demoMsg=`analyzing the track ${Math.round(p*100)}%`;P.d=.3+.7*p;paint();showLoad()});
-    if(!song){song={buf,an,name};buildSchedule(an.dur);regenAll();setInfo()}
+    if(!song){song={buf,an,name,first:true};buildSchedule(an.dur);regenAll();setInfo()}
   }catch(e){console.error(e);demoMsg='The demo track could not be built here. Load an MP3 to start.'}
   P.d=1;paint();
   try{await models}catch(e){return}
