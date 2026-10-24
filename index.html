@@ -93,7 +93,7 @@ input[type=range]{accent-color:var(--accent)}
   <label class="btn">♪ Load MP3<input id="file" type="file" accept="audio/*,.mp3"></label>
   <div class="seek"><span id="t0">0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Seek"><span id="t1">0:00</span></div>
   <input id="vol" type="range" min="0" max="100" value="80" title="Volume" aria-label="Volume">
-  <label class="btn tog" title="Show or hide the person"><input id="person" type="checkbox" checked>Person</label>
+  <label class="btn tog" title="Show or hide the person"><input id="person" type="checkbox">Person</label>
   <button id="cfg" title="Settings" aria-label="Settings">⚙</button>
   <button id="fs" title="Full screen" aria-label="Full screen">⛶</button>
   <div class="foot"><div id="status">Building the demo track…</div><div id="tag">sonically influenced botany and landscape</div></div>
@@ -122,6 +122,8 @@ const mixc=(a,b,t)=>[lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];
 // the shipped look: hills, moonlight, grain, saturation, depth of field and the colour grade are fixed (no sliders)
 const DEF={speed:1,beatWalk:true,alt:6,tilt:58,dof:1.05,focus:-2.2,frange:2.2,hills:2.3,density:2.45,fsize:1,wind:1.4,moon:4.7,glow:2.4,fhue:217,grain:.1,sat:.8,grass:'dense'};
 const S={...DEF};
+// the person starts hidden here (the Person toggle shows her)
+S.runner=false;
 // the track the site starts with: put the MP3 next to index.html with this file name. If it's missing (as inside the
 // Claude artifact), the built-in demo track plays instead. 'title' is what the status line shows.
 const START_SONG={file:'song.mp3',title:'Winter Flower (Clams Casino)'};
