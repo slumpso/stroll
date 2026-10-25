@@ -129,7 +129,7 @@ S.runner=false;
 const START_SONG={file:'song.mp3',title:'Winter Flower (Clams Casino)'};
 // blade budgets (allocated) and densities per square metre: the drawn count follows the visible patch area,
 // so tilting the camera up no longer spreads the same blades thinner
-const GRASS_N={light:200000,lush:380000,dense:700000},GRASS_D={light:170,lush:320,dense:590};
+const GRASS_N={light:200000,lush:380000,dense:700000,extreme:1300000},GRASS_D={light:170,lush:320,dense:590,extreme:1100};
 
 /* ---------------- renderer / scene ---------------- */
 const renderer=new THREE.WebGLRenderer({canvas:$('c'),antialias:true,powerPreference:'high-performance'});
@@ -1116,15 +1116,24 @@ function fpsCount(){fpsN++;const n=performance.now();if(fpsLast)fpsWorst=Math.ma
   if(n-fpsT>1000){const f=fpsN*1000/(n-fpsT);fpsN=0;fpsT=n;adaptRes(f,n);const el=document.getElementById('fps');
     if(el&&el.style.display!=='none')el.textContent=`${f.toFixed(0)} fps · res ${Math.round(RS*100)}% · worst ${fpsWorst.toFixed(0)} ms · scene update ${jsWorst.toFixed(1)} ms (terrain ${terrWorst.toFixed(1)}) · draw calls ${drawWorst.toFixed(1)} ms`;
     fpsWorst=0;terrWorst=0;terrRows=0;jsWorst=0;drawWorst=0}}
-function frame(){
+// critically damped spring: follows its target with the same lag as before, but builds up and winds down its speed
+// smoothly, so the camera never lurches into a climb or a turn and never overshoots
+function spring(st,target,w,dt){const x=st.x-target,k=(st.v+w*x)*dt,e=Math.exp(-w*dt);st.x=target+(x+k)*e;st.v=(st.v-w*k)*e;return st.x}
+const camYS={x:0,v:0},camXS={x:0,v:0},camSync={song:null,t:0,d:0};
+function frame(ts){
   requestAnimationFrame(frame);fpsCount();const tF0=performance.now();
   {const v=document.getElementById('veil');if(v&&!v.dataset.done&&modelsReady&&song){v.dataset.done=1;setTimeout(()=>{v.classList.add('gone');setTimeout(()=>v.remove(),1500)},400)}}
   if(innerWidth>0&&(renderer.domElement.width===0||Math.abs(camera.aspect-innerWidth/Math.max(1,innerHeight))>.01))resize();
-  const now=performance.now()/1000,dt=Math.min(.05,now-last);last=now;clock+=dt;U.uTime.value=clock;
+  // the browser's own refresh timestamp, so every frame steps forward evenly
+  const now=(ts!==undefined?ts:performance.now())/1000,dt=Math.min(.05,Math.max(0,now-last));last=now;clock+=dt;U.uTime.value=clock;
   let bassNow=0;
   // don't rely on the audio's 'ended' event alone; it can fail to arrive, and then the clock runs past the end
   if(playing&&song&&songTime()>=song.an.dur)endSong();
-  if(playing&&song){const t=songTime();camDist+=speedMS()*dt;
+  if(playing&&song){const t=songTime(),sp=speedMS();
+    // glide forward smoothly by frame time, and let a distance kept by the song's own clock gently pull it back in step,
+    // so a slow frame can't leave the world lagging behind the music (seeks and new songs just re-anchor it)
+    if(camSync.song!==song||t<camSync.t||t-camSync.t>.5){camSync.song=song;camSync.d=camDist}else camSync.d+=sp*(t-camSync.t);
+    camSync.t=t;camDist+=sp*dt;camDist+=(camSync.d-camDist)*(1-Math.exp(-dt*.8));
     const ev=song.an.events;while(ptr<ev.length&&ev[ptr].t<=t+1.35){const e=ev[ptr++];if(e.t>=t-.25)onEvent(e)}
     bassNow=envAt(song.an.bass,song.an.fr,t);
     if(!dragging){$('seek').value=t/song.an.dur*1000;$('t0').textContent=fmt(t)}
@@ -1134,8 +1143,8 @@ function frame(){
   {const t0=performance.now();updateRows();terrRows+=hDirty.size;flushHeights();terrWorst=Math.max(terrWorst,performance.now()-t0)}
   const camZ=-camDist,look=lookAhead();
   let avg=0;for(const [dx,dz] of [[0,0],[-3,0],[3,0],[0,-3],[0,2.5]])avg+=hAt(dx,camZ-look+dz);avg/=5;
-  camGY=lerp(camGY,avg,1-Math.exp(-dt*1.4));
-  camX=lerp(camX,.5*pathX(camZ-look),1-Math.exp(-dt*1.2));
+  camGY=spring(camYS,avg,2.8,dt);
+  camX=spring(camXS,.5*pathX(camZ-look),2.4,dt);
   camera.position.set(camX,camGY+S.alt,camZ);camera.lookAt(camX,camGY,camZ-look);
   if(patchDirty){computePatch();patchDirty=false;scene.fog.density=Math.max(0,S.tilt-36)*.0017;grassCount()}
   U.uCamZ.value=camZ;
@@ -1193,7 +1202,7 @@ for(const [k,l,mn,mx,st,u] of SL){const r=document.createElement('label');r.clas
     if(k==='wind')U.uWind.value=S.wind;if(k==='moon')applySun();if(k==='glow')applyFx();if(k==='fhue')recolorFlowers();if(k==='grain'||k==='sat')applyFinish()};
   setters.push(show);show();panel.appendChild(r)}
 const row=document.createElement('div');row.className='row';
-row.innerHTML=`<label>Grass <select id="s_grass"><option value="light">Light</option><option value="lush">Lush</option><option value="dense">Dense</option></select></label>
+row.innerHTML=`<label>Grass <select id="s_grass"><option value="light">Light</option><option value="lush">Lush</option><option value="dense">Dense</option><option value="extreme">Extreme</option></select></label>
 <label title="On: her steps land on the beat. Off: a smooth pace from stroll to brisk walk"><input type="checkbox" id="s_beatwalk">Beat-matched walk</label>
 <label><input type="checkbox" id="s_fps">FPS</label><button id="s_reset">Reset</button>`;
 panel.appendChild(row);
