@@ -188,13 +188,20 @@ function envAt(arr,fr,t){const f=t*fr;if(f<0||f>=arr.length-1)return 0;const i=M
 function ampAt(t){if(!song)return 0;return sstep(.28,.92,envAt(song.an.env,song.an.fr,t))}
 // no ledges: the hill height may change by at most this much per row (a full swing takes about 5 m of trail), so a
 // sudden drop or cut-in ramps the hills up instead of raising a step across the trail. Gradual changes pass untouched.
-const rowAmp=new Float32Array(HM.NZ),AMP_STEP=HM.cell/5;
+// the hill height follows the song's loudness row by row, but its rate of change is limited (no ledges) and so is how
+// fast that rate itself can change, so every rise and fall eases in and out instead of starting and stopping on a sharp
+// crease (a sudden drop in loudness, at a song's end say, used to leave a straight ramp with hard edges across the land)
+const rowAmp=new Float32Array(HM.NZ),rowAmpV=new Float32Array(HM.NZ),AMP_STEP=HM.cell/5,AMP_ACC=AMP_STEP/14;
 function songTime(){return playing&&actx?actx.currentTime-startAt:offset}
 const MAXS=.5,rowT=new Float32Array(HM.NX),rowC=new Float32Array((HM.NX>>2)+1);
 function genRow(r,w=1,nb=null){
   const z=r*HM.cell,dist=-z,t=songTime()+(dist-camDist-lookAhead())/speedMS();let amp=ampAt(t);
   const ri=((r%HM.NZ)+HM.NZ)%HM.NZ*HM.NX;
-  if(nb!==null){const a0=rowAmp[((nb%HM.NZ)+HM.NZ)%HM.NZ];amp=clamp(amp,a0-AMP_STEP,a0+AMP_STEP)}rowAmp[ri/HM.NX]=amp;
+  // (the rate is stored per metre of +z, since rows get built in both directions)
+  let av=0;const dir=nb===null?1:Math.sign(r-nb);if(nb!==null){const ni=((nb%HM.NZ)+HM.NZ)%HM.NZ,a0=rowAmp[ni],v0=rowAmpV[ni]*dir,d=amp-a0;
+    // the fastest it may still be changing and come to rest exactly on the target, then no more than one step of change in that rate
+    const vt=Math.sign(d)*Math.min(AMP_STEP,Math.abs(d),Math.sqrt(2*AMP_ACC*Math.abs(d)));av=clamp(vt,v0-AMP_ACC,v0+AMP_ACC);amp=Math.max(0,a0+av)}
+  rowAmp[ri/HM.NX]=amp;rowAmpV[ri/HM.NX]=av*dir;
   // the hill noise is sampled every 4th cell (every 0.5 m) and filled in between; its finest detail is ~2 m across,
   // so this looks the same and costs a quarter of the work
   for(let j=0;j<=HM.NX>>2;j++){const x=HM.x0+j*4*HM.cell;
@@ -587,9 +594,12 @@ const PROP_DEFS={
   arch:  {files:['stone_arch.glb'],pool:2,scale:[1,1],sv:[1.25,1,1.15],sink:.012,align:0,rad:.01},
   medrock:{files:['medrock.glb'],pool:16,scale:[.85,1.25],sink:.3,align:1,rate:.1,rad:.4,tilt:.15},
   wood:  {files:['driftwood.glb','driftwood2.glb'],pool:18,scale:[1.8,2.5],sink:.3,align:1,rate:.08,rad:.4},
-  skull: {files:['forgotten_skull.glb'],pool:8,scale:[2.1,2.5],sink:.36,align:.85,rate:.035,rad:.1,tilt:.55},
+  // a jawless cranium: only a little sunk and tilted, and mostly facing back toward the camera, so the eye sockets read
+  skull: {files:['skull.glb'],pool:8,scale:[2.2,2.6],sink:.1,align:.85,rate:.035,rad:.1,tilt:.22,face:1.1},
   log:   {files:['log1.glb'],pool:2,scale:[.45,.6],sink:.2,align:.35,rad:.7,tilt:.06,edge:[1.2,3.4],pre:[0,0,.7071068,.7071068]},
   tree:  {files:['dead_tree.glb'],pool:5,scale:[2,2.8],sink:.015,align:.15,rate:.035,rad:.55,tilt:.09,edge:[4.4,6.6]},
+  // a weeping willow, half as often as the dead trees; set back so its curtain of leaves hangs clear of the trail
+  willow:{files:['willow_tree.glb'],pool:3,scale:[2,2.5],sink:.015,align:.12,rate:.0175,rad:2.1,tilt:.05,edge:[.8,2.6]},
   grave: {files:['graveheadstone.glb','graveheadstone2.glb','graveheadstone3.glb','graveheadstone4.glb'],pool:2,scale:[2.85,2.85],sinkM:[.07,.075,.085,.05],align:.2,rad:.42},
   tomb:  {files:['raised_tomb.glb'],pool:2,scale:[1.1,1.1],sinkM:[.36],align:0,rad:1.5,flat:true},
   // low dry-stone walls (about waist height) running out from both sides of an arch; they follow the ground (see follow)
@@ -611,17 +621,21 @@ class PropModel{
         sh.vertexShader=addCommon(sh.vertexShader).replace('#include <project_vertex>','#include <project_vertex>'+WPOS);
         sh.fragmentShader=addCommon(sh.fragmentShader).replace(...CLOUD_FRAG)};
       mat.customProgramCacheKey=()=>'prop';
-      if(def===PROP_DEFS.tree){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb;','reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb*exp(-max(0.,vWPos.y-hAt(vWPos.xz))*.7);')};mat.customProgramCacheKey=()=>'prop-tree'}
+      if(def===PROP_DEFS.tree||def===PROP_DEFS.willow){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb;','reflectedLight.directDiffuse+=glowAt(vWPos.xz)*diffuseColor.rgb*exp(-max(0.,vWPos.y-hAt(vWPos.xz))*.7);')};mat.customProgramCacheKey=()=>'prop-tree'}
+      // the willow's leaves, a little desaturated so they sit with the moonlit grass
+      if(def===PROP_DEFS.willow&&mat.alphaTest>0){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.fragmentShader=sh.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\ndiffuseColor.rgb=mix(vec3(dot(diffuseColor.rgb,vec3(.299,.587,.114))),diffuseColor.rgb,.6);')};mat.customProgramCacheKey=()=>'prop-willow-leaf'}
       if(def.follow){const ob=mat.onBeforeCompile;mat.onBeforeCompile=sh=>{ob(sh);sh.vertexShader=sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n'+FOLLOW_V)};mat.customProgramCacheKey=()=>'prop-follow'}
       const m=new THREE.InstancedMesh(o.geometry,mat,def.pool);if(im)m.instanceMatrix=im;else im=m.instanceMatrix;
       if(def.follow){const dm=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking});dm.onBeforeCompile=sh=>{Object.assign(sh.uniforms,U);sh.vertexShader=addCommon(sh.vertexShader).replace('#include <begin_vertex>','#include <begin_vertex>\n'+FOLLOW_V)};dm.customProgramCacheKey=()=>'follow-depth';m.customDepthMaterial=dm}
+      // leaves cut out of a texture cast leaf-shaped shadows, not rectangles
+      if(mat.alphaTest>0&&!def.follow)m.customDepthMaterial=new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking,map:mat.map,alphaTest:mat.alphaTest});
       m.count=0;m.castShadow=true;m.receiveShadow=true;m.frustumCulled=false;scene.add(m);this.meshes.push(m)});
     this.im=im;this.pre=new THREE.Quaternion(...(def.pre||[0,0,0,1]));this.bottom=bottomPts(gltf.scene,this.pre);
   }
   spawn(x,z,yaw,scale,tilt){
     const i=this.n%this.pool,rec={x,z,yaw,scale,tilt,i};this.live[i]=rec;this.place(rec);
     this.n++;const c=Math.min(this.n,this.pool);for(const m of this.meshes)m.count=c;this.im.needsUpdate=true;
-    occAdd(x,z,this.def.rad*scale,(this.def===PROP_DEFS.grave||this.def===PROP_DEFS.tree||this.def===PROP_DEFS.log||this.def===PROP_DEFS.tomb)?1:0);
+    occAdd(x,z,this.def.rad*scale,(this.def===PROP_DEFS.grave||this.def===PROP_DEFS.tree||this.def===PROP_DEFS.willow||this.def===PROP_DEFS.log||this.def===PROP_DEFS.tomb)?1:0);
   }
   place(r){const d=this.def,s=this.size,rad=Math.max(s[0],s[2])*.5*r.scale;
     const e=Math.max(.08,rad*.7),hx=hAt(r.x-e,r.z)-hAt(r.x+e,r.z),hz=hAt(r.x,r.z-e)-hAt(r.x,r.z+e);
@@ -718,6 +732,7 @@ function buildSchedule(dur){
   for(const k of ['pebble','stone','medrock','wood','skull']){const d=PROP_DEFS[k];let t=R()*4/d.rate;
     while(t<dur){sched.push({t,k,m:R()*d.files.length|0,x:(R()*2-1)*8.5,r:[R(),R(),R(),R(),R()]});t+=-Math.log(1-R()*.999)/d.rate}}
   {const d=PROP_DEFS.tree;let t=R()*12;while(t<dur){sched.push({t,k:'tree',m:0,side:R()<.5?-1:1,r:[R(),R(),R(),R(),R()]});t+=12-Math.log(1-R()*.999)/d.rate}}
+  {const d=PROP_DEFS.willow;let t=8+R()*24;while(t<dur){sched.push({t,k:'willow',m:0,side:R()<.5?-1:1,r:[R(),R(),R(),R(),R()]});t+=24-Math.log(1-R()*.999)/d.rate}}
   for(const f of [.34,.66])sched.push({t:(f+(R()-.5)*.1)*dur,k:'log',m:0,side:R()<.5?-1:1,r:[R(),R(),R(),R(),R()]});
   const gt=[.12,.31,.5,.69,.88].map(f=>f*dur+(R()-.5)*.05*dur),order=[0,1,2,3].sort(()=>R()-.5);
   graves=gt.map((t,i)=>({t,k:'grave',m:order[i%4],side:R()<.5?-1:1,off:R()*1.3,yaw:(R()-.5)*.42,r:[R(),R(),R(),R(),R()]}));
@@ -750,7 +765,7 @@ function spawnItem(it){
   for(let j=0;j<n;j++){const a=r[1]*6.283+j*2.4,rr=j?.14+.24*Math.random():0,x=cx+Math.cos(a)*rr,zz=z+Math.sin(a)*rr;
     const sc=j?lerp(d.scale[0],d.scale[1],Math.random()):sc0,mm=n>1?PROPS[it.k][Math.random()*d.files.length|0]||M:M,rad=Math.max(mm.size[0],mm.size[2])*.5*sc;
     if(j&&blocked(x,zz,rad))continue;
-    mm.spawn(x,zz,Math.random()*6.283,sc,tl());OBST.push({x,z:zz,r:d.edge?R0:rad})}
+    mm.spawn(x,zz,d.face?(Math.random()*2-1)*d.face:Math.random()*6.283,sc,tl());OBST.push({x,z:zz,r:d.edge?R0:rad})}
 }
 function updateProps(){updateArches();if(!sched.length||!PROPS.pebble)return;const lim=spawnAhead();
   while(sPtr<sched.length&&-itemZ(sched[sPtr])-camDist<lim){const it=sched[sPtr++];if(-itemZ(it)-camDist>-HM.back)spawnItem(it)}}
