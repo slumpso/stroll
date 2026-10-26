@@ -933,9 +933,29 @@ async function analyze(buf,prog){
   // tempo by autocorrelation of the combined onset curve
   {const p=pct(ODt,.98)||1;for(let f=0;f<F;f++)ODt[f]=Math.min(1.5,ODt[f]/p)}
   const em=localMean(ODt,W),e2=ODt.map((v,i)=>Math.max(0,v-em[i]));
-  const lagMin=Math.floor(fo*60/180),lagMax=Math.ceil(fo*60/70),ac=new Float32Array(lagMax+3);
-  for(let lag=lagMin-1;lag<=lagMax+1;lag++){let s=0;for(let f=0;f+lag<F;f++)s+=e2[f]*e2[f+lag];ac[lag]=s/Math.max(1,F-lag)}
-  let best=-1,bl=lagMin;for(let lag=lagMin;lag<=lagMax;lag++){const bpm=60*fo/lag,w=Math.exp(-.5*Math.pow(Math.log2(bpm/120)/.9,2)),v=ac[lag]*w;if(v>best){best=v;bl=lag}}
+  const lagMin=Math.floor(fo*60/180),lagMax=Math.ceil(fo*60/70),ac=new Float32Array(4*lagMax+6);
+  for(let lag=lagMin-1;lag<=4*lagMax+4;lag++){let s=0;for(let f=0;f+lag<F;f++)s+=e2[f]*e2[f+lag];ac[lag]=s/Math.max(1,F-lag)}
+  const aci=v=>{const i=Math.floor(v),u=v-i;return ac[i]*(1-u)+ac[i+1]*u};
+  // tempo candidates: the strongest repeat periods and their usual metrical relatives (half, double, 2/3, 3/4...).
+  // Each is then laid over the song as a beat grid at its best offset; the real beat is the grid whose points land on
+  // the strongest kicks and snares. Syncopated patterns repeat at
+  // misleading periods, so their grids keep landing on the weaker in-between hits
+  const prior=lag=>Math.exp(-.5*Math.pow(Math.log2(60*fo/lag/120)/1.1,2));
+  const pk=[];for(let l=lagMin;l<=lagMax;l++)if(ac[l]>=ac[l-1]&&ac[l]>=ac[l+1])pk.push(l);
+  pk.sort((p,q)=>(ac[q]+aci(2*q)+aci(4*q))-(ac[p]+aci(2*p)+aci(4*p)));
+  const refine=v=>{let b=Math.round(v);for(let l=Math.max(lagMin,Math.floor(v*.96));l<=Math.min(lagMax,Math.ceil(v*1.04));l++)if(ac[l]>ac[b]||b<lagMin||b>lagMax)b=l;return b};
+  const cands=new Set();for(const l of pk.slice(0,4))for(const r of [1,.5,2/3,.75,4/3,1.5,2]){const v=l*r;if(v>=lagMin&&v<=lagMax)cands.add(refine(v))}
+  const Bs=new Float32Array(F);for(let f=0;f<F;f++)Bs[f]=OD[0][f]+OD[1][f]+.5*OD[2][f]+.25*OD[3][f];
+  {const m=localMean(Bs,Math.round(fo*.5));for(let f=0;f<F;f++)Bs[f]=Math.max(0,Bs[f]-m[f])}
+  const at=v=>{const i=Math.round(v);return Math.max(Bs[i]||0,Bs[i-1]||0,Bs[i+1]||0)};
+  const frac=l=>{const a=ac[l-1],b=ac[l],c=ac[l+1],d=a-2*b+c;return l+(d?clamp(.5*(a-c)/d,-.5,.5):0)};
+  // judged over stretches of 16 beats, each with its own best offset, so a slightly-off period or a drifting song
+  // doesn't smear the grid
+  const sal=l0=>{const lag=frac(l0),seg=16*lag;let tot=0,ns=0;
+    for(let s0=0;s0+seg<=F;s0+=seg){let best=-1e9;for(let ph=0;ph<lag;ph+=.5){let on=0,n=0;for(let t=s0+ph;t<s0+seg;t+=lag){on+=at(t);n++}if(on/n>best)best=on/n}tot+=best;ns++}
+    return ns?tot/ns:-1e9};
+  let best=-1e9,bl=lagMin;for(const l of cands){const v=sal(l)*prior(l);if(v>best){best=v;bl=l}}
+  bl=clamp(bl,lagMin,lagMax);
   const a=ac[bl-1],b0=ac[bl],c=ac[bl+1],den=a-2*b0+c,per=bl+(den?clamp(.5*(a-c)/den,-.5,.5):0);
   prog(.88);await tick();
   // beat tracking (dynamic programming): each beat lands on a strong onset near one period after the previous beat, so the
